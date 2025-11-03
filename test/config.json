@@ -1,0 +1,24 @@
+{
+  "server": {
+    "host": "localhost:8088"
+  },
+  "mcp": [
+    {
+      "name": "calculator",
+      "transport": "sse",
+      "url": "http://localhost:7751/sse"
+    },
+    {
+      "name": "temperature",
+      "transport": "streamablehttp",
+      "url": "http://localhost:7752/mcp"
+    },
+    {
+      "name": "hello",
+      "transport": "stdio",
+      "path": "hello",
+      "cmd": "go",
+      "args": ["run", "mcp_servers/hello/main.go"]
+    }
+  ]
+}
