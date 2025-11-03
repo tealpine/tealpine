@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"github.com/sirupsen/logrus"
 	"mcp-auth-proxy/pkg/mcp_proxy"
 )
@@ -17,12 +16,13 @@ func main() {
 		FullTimestamp:   true,
 	})
 
-	config, err := mcp_proxy.ReadConfig("test/config.json")
+	cfg, err := mcp_proxy.ReadConfig("test/config.json")
 	if err != nil {
 		logrus.Fatal(err)
 	}
+	logrus.Debugf("%+v", cfg)
 
-	ctx := context.Background()
-
-	_ = mcp_proxy.NewServer(ctx, config)
+	//ctx := context.Background()
+	//
+	//_ = mcp_proxy.NewClient(ctx, config)
 }

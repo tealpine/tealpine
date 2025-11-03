@@ -7,8 +7,9 @@ import (
 )
 
 type Config struct {
-	Server ServerConfig `json:"server"`
-	MCP    []MCPConfig  `json:"mcp"`
+	Server ServerConfig            `json:"server"`
+	MCP    map[string]MCPConfig    `json:"mcp"`
+	Proxy  map[string]ProxyConfig  `json:"proxy"`
 }
 
 type ServerConfig struct {
@@ -16,12 +17,25 @@ type ServerConfig struct {
 }
 
 type MCPConfig struct {
-	Name      string   `json:"name"`
+	Name      string
 	Transport string   `json:"transport"`
 	Path      string   `json:"path"`
 	Cmd       string   `json:"cmd"`
 	CmdArgs   []string `json:"args"`
 	URL       string   `json:"url"`
+}
+
+type ProxyConfig struct {
+	Name      string
+	Path      string           `json:"path"`
+	Transport string           `json:"transport"`
+	MCP       string           `json:"mcp,omitempty"`
+	MCPs      []MultiMCPConfig `json:"mcps,omitempty"`
+}
+
+type MultiMCPConfig struct {
+	Name   string `json:"name"`
+	Prefix string `json:"prefix"`
 }
 
 func ReadConfig(path string) (*Config, error) {
@@ -41,6 +55,16 @@ func ReadConfig(path string) (*Config, error) {
 	config := &Config{}
 	if err := jsonParser.Decode(config); err != nil {
 		return nil, err
+	}
+	for name := range config.MCP {
+		mcp := config.MCP[name]
+		mcp.Name = name
+		config.MCP[name] = mcp
+	}
+	for name := range config.Proxy {
+		proxy := config.Proxy[name]
+		proxy.Name = name
+		config.Proxy[name] = proxy
 	}
 	return config, nil
 }

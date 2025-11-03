@@ -12,7 +12,8 @@ build:
 
 .PHONY: test
 test:
-	$(GO) test ./...
+	@echo "Running tests..."
+	@go test -v ./...
 
 .PHONY: format
 format:
@@ -20,3 +21,29 @@ format:
 	golangci-lint run --no-config --fix
 	go fmt ./...
 	go mod tidy
+
+
+.PHONY: start-mcps
+start-mcps:
+	@echo "Starting MCPs..."
+	@go run test/mcp_servers/calculator/main.go > calc.log 2>&1 & echo $$! > calc.pid
+	@go run test/mcp_servers/temperature/main.go > temp.log 2>&1 & echo $$! > temp.pid
+	@echo "MCPs started"
+
+.PHONY: stop-mcps
+stop-mcps:
+	@echo "Stopping MCPs..."
+	@if [ -f calc.pid ]; then \
+		kill `cat calc.pid` 2>/dev/null || true; \
+		rm -f calc.pid; \
+	fi
+	@if [ -f temp.pid ]; then \
+		kill `cat temp.pid` 2>/dev/null || true; \
+		rm -f temp.pid; \
+	fi
+	@rm -f temp.log calc.log
+	@echo "MCPs stopped"
+
+.PHONY: clean
+clean: stop-mcps
+	rm -f temp.pid temp.log calc.pid calc.log
