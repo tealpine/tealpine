@@ -1,4 +1,4 @@
-package test
+package proxy
 
 import (
 	"github.com/google/gops/agent"
@@ -6,20 +6,7 @@ import (
 	"log"
 	"os"
 	"testing"
-
-	"mcp-auth-proxy/pkg/mcp_proxy"
 )
-
-var (
-	testConfig *mcp_proxy.Config
-)
-
-func getConfig(t *testing.T) *mcp_proxy.Config {
-	if testConfig == nil {
-		t.Fatalf("testConfig is nil")
-	}
-	return testConfig
-}
 
 func TestMain(m *testing.M) {
 	if err := agent.Listen(agent.Options{}); err != nil {
@@ -34,12 +21,6 @@ func TestMain(m *testing.M) {
 	})
 
 	logrus.Infof("Setting up test environment...")
-
-	var err error
-	testConfig, err = mcp_proxy.ReadConfig("config.json")
-	if err != nil {
-		logrus.Fatal(err)
-	}
 
 	exitCode := m.Run()
 

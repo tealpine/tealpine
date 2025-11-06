@@ -26,8 +26,8 @@ format:
 .PHONY: start-mcps
 start-mcps:
 	@echo "Starting MCPs..."
-	@go run test/mcp_servers/calculator/main.go > calc.log 2>&1 & echo $$! > calc.pid
-	@go run test/mcp_servers/temperature/main.go > temp.log 2>&1 & echo $$! > temp.pid
+	@go run test/mcp_servers/main.go calc server > calc.log 2>&1 & echo $$! > calc.pid
+	@go run test/mcp_servers/main.go temp server > temp.log 2>&1 & echo $$! > temp.pid
 	@echo "MCPs started"
 
 .PHONY: stop-mcps

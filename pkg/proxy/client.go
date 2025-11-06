@@ -1,4 +1,4 @@
-package mcp_proxy
+package proxy
 
 import (
 	"context"

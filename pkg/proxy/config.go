@@ -1,4 +1,4 @@
-package mcp_proxy
+package proxy
 
 import (
 	"encoding/json"
@@ -7,9 +7,9 @@ import (
 )
 
 type Config struct {
-	Server ServerConfig            `json:"server"`
-	MCP    map[string]MCPConfig    `json:"mcp"`
-	Proxy  map[string]ProxyConfig  `json:"proxy"`
+	Server ServerConfig           `json:"server"`
+	MCP    map[string]MCPConfig   `json:"mcp"`
+	Proxy  map[string]ProxyConfig `json:"proxy"`
 }
 
 type ServerConfig struct {
