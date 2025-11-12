@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"time"
 )
 
 type Config struct {
@@ -17,12 +18,14 @@ type ServerConfig struct {
 }
 
 type MCPConfig struct {
-	Name      string
-	Transport string   `json:"transport"`
-	Path      string   `json:"path"`
-	Cmd       string   `json:"cmd"`
-	CmdArgs   []string `json:"args"`
-	URL       string   `json:"url"`
+	Name           string        `json:"-"`
+	Transport      string        `json:"transport"`
+	Path           string        `json:"path"`
+	Cmd            string        `json:"cmd"`
+	CmdArgs        []string      `json:"args"`
+	URL            string        `json:"url"`
+	PingInterval   time.Duration `json:"pingInterval"`
+	ReconnectDelay time.Duration `json:"reconnectDelay"`
 }
 
 type ProxyConfig struct {

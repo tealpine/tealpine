@@ -20,7 +20,7 @@
       "cmd": "go",
       "args": [
         "run",
-        "mcp_servers/main.go",
+        "test/mcp_servers/main.go",
         "hello",
         "server"
       ]

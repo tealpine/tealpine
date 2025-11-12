@@ -27,9 +27,7 @@ func (s *Server) Init(ctx context.Context) error {
 	for name, mcpConfig := range s.cfg.MCP {
 		client := NewClient(mcpConfig)
 		s.clients[name] = client
-		if _, err := client.Init(ctx); err != nil {
-			return fmt.Errorf("failed to initialize client %s: %w", name, err)
-		}
+		client.Start(ctx)
 	}
 
 	// 2. Create and initialize all proxies

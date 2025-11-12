@@ -1,4 +1,4 @@
-package proxy
+package test
 
 import (
 	"github.com/google/gops/agent"
