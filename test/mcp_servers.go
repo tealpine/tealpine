@@ -3,18 +3,19 @@ package test
 import (
 	"context"
 	"fmt"
-	"github.com/mark3labs/mcp-go/client"
+	mgclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"time"
 )
 
 type MCPTestServer interface {
 	RunServer() error
-	RunClient() error
+	RunClient(string) error
 	GetHTTPHandler() (http.Handler, error)
 }
 
@@ -108,9 +109,12 @@ func (m *MCPCalculator) RunServer() error {
 	return nil
 }
 
-func (m *MCPCalculator) RunClient() error {
+func (m *MCPCalculator) RunClient(url string) error {
 	// Create a new SSE client
-	c, err := client.NewSSEMCPClient("http://localhost:7751/sse")
+	if url == "" {
+		url = "http://localhost:7751/sse"
+	}
+	c, err := mgclient.NewSSEMCPClient(url)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
@@ -217,7 +221,7 @@ func (m *MCPHello) RunServer() error {
 	s := server.NewMCPServer(
 		"Demo 🚀",
 		"1.0.0",
-		server.WithToolCapabilities(false),
+		server.WithToolCapabilities(true),
 	)
 
 	// Add tool
@@ -240,8 +244,24 @@ func (m *MCPHello) RunServer() error {
 	return nil
 }
 
-func (m *MCPHello) RunClient() error {
-	panic("implement me")
+func (m *MCPHello) RunClient(string) error {
+	fmt.Printf("%v\n", os.Args)
+	client, err := mgclient.NewStdioMCPClient(os.Args[0], []string{}, "hello", "server")
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	ctx := context.Background()
+	result, err := client.Initialize(ctx, mcp.InitializeRequest{
+		Params: mcp.InitializeParams{
+			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+			ClientInfo: mcp.Implementation{
+				Name:    "mcp-auth-proxy-upstream-client",
+				Version: "1.0.0",
+			},
+		},
+	})
+	fmt.Printf("RESULT: %v\n", result)
+	return nil
 }
 
 func helloHandler(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -359,9 +379,12 @@ func (m *MCPTemperature) RunServer() error {
 	return nil
 }
 
-func (m *MCPTemperature) RunClient() error {
+func (m *MCPTemperature) RunClient(url string) error {
+	if url == "" {
+		url = "http://localhost:7752/mcp"
+	}
 	// Create a new StreamableHttpClient for the StreamableHTTPServer
-	c, err := client.NewStreamableHttpClient("http://localhost:7752/mcp")
+	c, err := mgclient.NewStreamableHttpClient(url)
 	if err != nil {
 		log.Fatal(err)
 	}

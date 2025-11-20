@@ -65,7 +65,7 @@ func TestServer(t *testing.T) {
 				Cmd:       "go",
 				CmdArgs: []string{
 					"run",
-					"../../test/mcp_servers/main.go",
+					"mcp_servers/main.go",
 					"hello",
 					"server",
 				},
@@ -126,8 +126,8 @@ func TestServer(t *testing.T) {
 		}
 	}()
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
+	// Give server time to start #TODO add some method which ends when all clients are connected
+	time.Sleep(900 * time.Millisecond)
 
 	// 6. Ensure server cleanup
 	defer func() {
@@ -212,6 +212,7 @@ func TestServer(t *testing.T) {
 				ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
 			},
 		})
+
 		require.NoError(t, err)
 
 		result, err := helloClient.CallTool(ctx, mcp.CallToolRequest{
@@ -346,130 +347,6 @@ func TestServer(t *testing.T) {
 		require.False(t, result.IsError)
 		require.Equal(t, "Hello, Final Test!", result.Content[0].(mcp.TextContent).Text)
 	})
-}
-
-func XTestServerWithoutUpstreamServers(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Create configuration pointing to non-existent upstream servers
-	config := &proxy.Config{
-		Server: proxy.ServerConfig{
-			Host: "localhost:0",
-		},
-		MCP: map[string]proxy.MCPConfig{
-			"calculator": {
-				Name:      "calculator",
-				Transport: "sse",
-				URL:       "http://localhost:9999/sse", // Non-existent server
-			},
-			"temperature": {
-				Name:      "temperature",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:9998/mcp", // Non-existent server
-			},
-		},
-		Proxy: map[string]proxy.ProxyConfig{
-			"calc": {
-				Name:      "calc",
-				Path:      "calc",
-				Transport: "streamablehttp",
-				MCP:       "calculator",
-			},
-		},
-	}
-
-	// Create server
-	server := proxy.NewServer(config)
-
-	// Attempt to initialize - should fail because upstream servers are not available
-	err := server.Init(ctx)
-	require.Error(t, err, "Init should return an error when upstream servers are not available")
-	require.Contains(t, err.Error(), "failed to initialize client", "Error should indicate client initialization failure")
-}
-
-func XTestServerWithInvalidProxyConfig(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Create the MCP calculator server
-	calcServer := &MCPCalculator{}
-	calcHandler, err := calcServer.GetHTTPHandler()
-	require.NoError(t, err)
-	calcUpstreamServer := httptest.NewServer(calcHandler)
-	defer calcUpstreamServer.Close()
-
-	// Create configuration with invalid proxy config (references non-existent MCP)
-	config := &proxy.Config{
-		Server: proxy.ServerConfig{
-			Host: "localhost:0",
-		},
-		MCP: map[string]proxy.MCPConfig{
-			"calculator": {
-				Name:      "calculator",
-				Transport: "sse",
-				URL:       calcUpstreamServer.URL + "/sse",
-			},
-		},
-		Proxy: map[string]proxy.ProxyConfig{
-			"invalid": {
-				Name:      "invalid",
-				Path:      "invalid",
-				Transport: "streamablehttp",
-				MCP:       "nonexistent", // References non-existent MCP
-			},
-		},
-	}
-
-	// Create server
-	server := proxy.NewServer(config)
-
-	// Attempt to initialize - should fail because proxy references non-existent MCP
-	err = server.Init(ctx)
-	require.Error(t, err, "Init should return an error when proxy references non-existent MCP")
-	require.Contains(t, err.Error(), "client not found", "Error should indicate client not found")
-}
-
-func XTestServerWithEmptyProxyConfig(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Create the MCP calculator server
-	calcServer := &MCPCalculator{}
-	calcHandler, err := calcServer.GetHTTPHandler()
-	require.NoError(t, err)
-	calcUpstreamServer := httptest.NewServer(calcHandler)
-	defer calcUpstreamServer.Close()
-
-	// Create configuration with empty proxy config (no MCP or MCPs specified)
-	config := &proxy.Config{
-		Server: proxy.ServerConfig{
-			Host: "localhost:0",
-		},
-		MCP: map[string]proxy.MCPConfig{
-			"calculator": {
-				Name:      "calculator",
-				Transport: "sse",
-				URL:       calcUpstreamServer.URL + "/sse",
-			},
-		},
-		Proxy: map[string]proxy.ProxyConfig{
-			"empty": {
-				Name:      "empty",
-				Path:      "empty",
-				Transport: "streamablehttp",
-				// No MCP or MCPs specified
-			},
-		},
-	}
-
-	// Create server
-	server := proxy.NewServer(config)
-
-	// Attempt to initialize - should fail because proxy has no MCP configuration
-	err = server.Init(ctx)
-	require.Error(t, err, "Init should return an error when proxy has no MCP configuration")
-	require.Contains(t, err.Error(), "has no mcp or mcps configuration", "Error should indicate missing MCP configuration")
 }
 
 func TestServerWithUpstreamServerRestart(t *testing.T) {

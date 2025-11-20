@@ -35,7 +35,9 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err = upstreamClient.Init(ctx)
+	upstreamClient.Start(ctx)
+
+	err = upstreamClient.WaitForConnection(ctx)
 	require.NoError(t, err)
 	defer upstreamClient.Close()
 
@@ -102,7 +104,9 @@ func TestProxySseTemperature(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err = upstreamClient.Init(ctx)
+	upstreamClient.Start(ctx)
+
+	err = upstreamClient.WaitForConnection(ctx)
 	require.NoError(t, err)
 	defer upstreamClient.Close()
 
@@ -177,7 +181,9 @@ func TestMultiProxy(t *testing.T) {
 		URL:       calcUpstreamServer.URL + "/sse",
 	}
 	calcClient := NewClient(calcConfig)
-	_, err = calcClient.Init(ctx)
+	calcClient.Start(ctx)
+
+	err = calcClient.WaitForConnection(ctx)
 	require.NoError(t, err)
 	clients["calculator"] = calcClient
 	defer calcClient.Close()
@@ -189,7 +195,8 @@ func TestMultiProxy(t *testing.T) {
 		URL:       tempUpstreamServer.URL + "/mcp",
 	}
 	tempClient := NewClient(tempConfig)
-	_, err = tempClient.Init(ctx)
+	tempClient.Start(ctx)
+	err = tempClient.WaitForConnection(ctx)
 	require.NoError(t, err)
 	clients["temperature"] = tempClient
 	defer tempClient.Close()
@@ -207,7 +214,8 @@ func TestMultiProxy(t *testing.T) {
 		},
 	}
 	helloClient := NewClient(helloConfig)
-	_, err = helloClient.Init(ctx)
+	helloClient.Start(ctx)
+	err = helloClient.WaitForConnection(ctx)
 	require.NoError(t, err)
 	clients["hello"] = helloClient
 	defer helloClient.Close()

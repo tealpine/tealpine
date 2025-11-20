@@ -15,15 +15,15 @@ import (
 // It exposes an MCP server (via StreamableHTTP or SSE) and forwards
 // all requests to an upstream MCP client
 type SingleProxy struct {
-	transport        string
-	path             string
-	client           *Client
-	mcpServer        *mgserver.MCPServer
-	httpHandler      http.Handler
-	ctx              context.Context
-	registeredTools  []string
-	registeredRes    []string
-	registeredPropts []string
+	transport           string
+	path                string
+	client              *Client
+	mcpServer           *mgserver.MCPServer
+	httpHandler         http.Handler
+	ctx                 context.Context
+	registeredTools     []string
+	registeredResources []string
+	registeredPrompts   []string
 }
 
 // NewSingleProxy creates a new proxy that will expose the given client
@@ -94,13 +94,13 @@ func (p *SingleProxy) clearHandlers() {
 		p.mcpServer.DeleteTools(p.registeredTools...)
 		p.registeredTools = nil
 	}
-	if len(p.registeredRes) > 0 {
-		p.mcpServer.DeleteResources(p.registeredRes...)
-		p.registeredRes = nil
+	if len(p.registeredResources) > 0 {
+		p.mcpServer.DeleteResources(p.registeredResources...)
+		p.registeredResources = nil
 	}
-	if len(p.registeredPropts) > 0 {
-		p.mcpServer.DeletePrompts(p.registeredPropts...)
-		p.registeredPropts = nil
+	if len(p.registeredPrompts) > 0 {
+		p.mcpServer.DeletePrompts(p.registeredPrompts...)
+		p.registeredPrompts = nil
 	}
 }
 
@@ -167,7 +167,7 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mgmcp.
 				}
 				return result.Contents, nil
 			})
-			p.registeredRes = append(p.registeredRes, resource.URI)
+			p.registeredResources = append(p.registeredResources, resource.URI)
 		}
 
 		// Note: Resource templates are not registered because they cannot be deleted,
@@ -200,7 +200,7 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mgmcp.
 				// Forward the prompt request to the upstream client
 				return p.client.GetPrompt(ctx, request)
 			})
-			p.registeredPropts = append(p.registeredPropts, prompt.Name)
+			p.registeredPrompts = append(p.registeredPrompts, prompt.Name)
 		}
 	}
 

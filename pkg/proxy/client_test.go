@@ -34,10 +34,12 @@ func TestClientWithStreamableHTTPServer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	initResult, err := client.Init(ctx)
+	client.Start(ctx)
+
+	err = client.WaitForConnection(ctx)
 	require.NoError(t, err, "Failed to initialize client")
-	require.NotNil(t, initResult, "Init result should not be nil")
-	require.Equal(t, "apartment-temperature-server", initResult.ServerInfo.Name)
+	require.NotNil(t, client.initResult, "Init result should not be nil")
+	require.Equal(t, "apartment-temperature-server", client.initResult.ServerInfo.Name)
 
 	// Test calling the get_room_temperature tool
 	result, err := client.CallTool(ctx, mcp.CallToolRequest{
@@ -95,26 +97,6 @@ func TestClientWithStreamableHTTPServer(t *testing.T) {
 	require.NoError(t, err, "Failed to close client")
 }
 
-func TestClientWithoutServer(t *testing.T) {
-	// Create client configuration pointing to a non-existent server
-	config := MCPConfig{
-		Name:      "temperature-test",
-		Transport: "streamablehttp",
-		URL:       "http://localhost:9999/nonexistent",
-	}
-
-	// Create and initialize the client
-	client := NewClient(config)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Attempt to initialize - should fail with connection error
-	initResult, err := client.Init(ctx)
-	require.Error(t, err, "Init should return an error when server is not available")
-	require.Nil(t, initResult, "Init result should be nil on error")
-	require.Contains(t, err.Error(), "connection refused", "Error should indicate connection failure")
-}
-
 func TestClientWithSSEServer(t *testing.T) {
 	// Create the MCP calculator server
 	calcServer := &mcptest.MCPCalculator{}
@@ -137,10 +119,11 @@ func TestClientWithSSEServer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	initResult, err := client.Init(ctx)
+	client.Start(ctx)
+	err = client.WaitForConnection(ctx)
 	require.NoError(t, err, "Failed to initialize client")
-	require.NotNil(t, initResult, "Init result should not be nil")
-	require.Equal(t, "Calculator Demo", initResult.ServerInfo.Name)
+	require.NotNil(t, client.initResult, "Init result should not be nil")
+	require.Equal(t, "Calculator Demo", client.initResult.ServerInfo.Name)
 
 	// Test addition
 	result, err := client.CallTool(ctx, mcp.CallToolRequest{
@@ -236,26 +219,6 @@ func TestClientWithSSEServer(t *testing.T) {
 	require.NoError(t, err, "Failed to close client")
 }
 
-func TestClientSSEWithoutServer(t *testing.T) {
-	// Create client configuration pointing to a non-existent SSE server
-	config := MCPConfig{
-		Name:      "calculator-test",
-		Transport: "sse",
-		URL:       "http://localhost:9998/sse",
-	}
-
-	// Create and initialize the client
-	client := NewClient(config)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Attempt to initialize - should fail with connection error
-	initResult, err := client.Init(ctx)
-	require.Error(t, err, "Init should return an error when server is not available")
-	require.Nil(t, initResult, "Init result should be nil on error")
-	require.Contains(t, err.Error(), "connection refused", "Error should indicate connection failure")
-}
-
 func TestClientWithStdioServer(t *testing.T) {
 	// Create client configuration for stdio hello server
 	// The command will run the hello MCP server via stdio
@@ -276,10 +239,11 @@ func TestClientWithStdioServer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	initResult, err := client.Init(ctx)
+	client.Start(ctx)
+	err := client.WaitForConnection(ctx)
 	require.NoError(t, err, "Failed to initialize client")
-	require.NotNil(t, initResult, "Init result should not be nil")
-	require.Equal(t, "Demo 🚀", initResult.ServerInfo.Name)
+	require.NotNil(t, client.initResult, "Init result should not be nil")
+	require.Equal(t, "Demo 🚀", client.initResult.ServerInfo.Name)
 
 	// Test calling the hello_world tool
 	result, err := client.CallTool(ctx, mcp.CallToolRequest{

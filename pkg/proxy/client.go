@@ -7,7 +7,6 @@ import (
 	mgclient "github.com/mark3labs/mcp-go/client"
 	mgmcp "github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus"
-	"log"
 	"sync"
 	"time"
 )
@@ -31,6 +30,7 @@ type Client struct {
 	errorCh     chan struct{}
 	cancel      context.CancelFunc
 	listeners   []ConnectionListener
+	log         *logrus.Entry
 }
 
 func NewClient(cfg MCPConfig) *Client {
@@ -41,9 +41,15 @@ func NewClient(cfg MCPConfig) *Client {
 		cfg.ReconnectDelay = 5 * time.Second
 	}
 
+	log := logrus.WithFields(logrus.Fields{
+		"client":    cfg.Name,
+		"transport": cfg.Transport,
+	})
+
 	s := &Client{
 		cfg:     cfg,
 		errorCh: make(chan struct{}),
+		log:     log,
 	}
 
 	return s
@@ -52,7 +58,7 @@ func NewClient(cfg MCPConfig) *Client {
 func (cs *Client) RegisterListener(listener ConnectionListener) {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
-	cs.listeners = append(cs.listeners, listener)
+	cs.listeners = append(cs.listeners, listener) //TODO: how to unregister listener?
 }
 
 func (cs *Client) GetInitResult() *mgmcp.InitializeResult {
@@ -76,7 +82,7 @@ func (cs *Client) Start(ctx context.Context) {
 
 func (cs *Client) init(ctx context.Context) error {
 
-	logrus.Infof("creating new client")
+	cs.log.Infof("creating new client")
 	var err error
 	var client mgclient.MCPClient
 	switch cs.cfg.Transport {
@@ -91,6 +97,9 @@ func (cs *Client) init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if client == nil {
+		return fmt.Errorf("unexpected nil client")
+	}
 
 	if cs.cfg.Transport != "stdio" {
 		// we need to do type assertion to call Start method
@@ -101,14 +110,14 @@ func (cs *Client) init(ctx context.Context) error {
 			err := s.Start(ctx)
 			if err != nil {
 				if closeErr := client.Close(); closeErr != nil {
-					logrus.WithError(closeErr).Error("Failed to close client after start failure")
+					cs.log.WithError(closeErr).Error("Failed to close client after start failure")
 				}
 				return err
 			}
 		}
 	}
 
-	logrus.Infof("initializing client")
+	cs.log.Infof("initializing client")
 	result, err := client.Initialize(ctx, mgmcp.InitializeRequest{
 		Params: mgmcp.InitializeParams{
 			ProtocolVersion: mgmcp.LATEST_PROTOCOL_VERSION,
@@ -121,16 +130,16 @@ func (cs *Client) init(ctx context.Context) error {
 
 	if err != nil {
 		if closeErr := client.Close(); closeErr != nil {
-			logrus.WithError(closeErr).Error("Failed to close client after initialization failure")
+			cs.log.WithError(closeErr).Error("Failed to close client after initialization failure")
 		}
 		return fmt.Errorf("initialization failed: %w", err)
 	}
 
-	logrus.Infof("Connected to server: %s v%s",
+	cs.log.Infof("Connected to server: %s v%s",
 		result.ServerInfo.Name,
 		result.ServerInfo.Version)
 
-	logrus.Infof("Client capabilities: %+v", result.Capabilities.Tools)
+	cs.log.Infof("Client capabilities: %+v", result.Capabilities.Tools)
 
 	cs.mutex.Lock()
 	cs.initResult = result
@@ -144,7 +153,7 @@ func (cs *Client) init(ctx context.Context) error {
 	// Notify listeners outside the lock to avoid deadlock
 	for _, listener := range listeners {
 		if err := listener.OnConnected(result); err != nil {
-			logrus.WithError(err).Error("Failed to notify listener of connection")
+			cs.log.WithError(err).Error("Failed to notify listener of connection")
 		}
 	}
 
@@ -215,47 +224,38 @@ func (cs *Client) Close() error {
 	return nil
 }
 
-//func (cs *Client) startHealthCheck() {
-//	ticker := time.NewTicker(cs.cfg.PingInterval)
-//	defer ticker.Stop()
-//	logrus.Info("AAAAAAAAAAAAA", cs.cfg.PingInterval)
-//
-//	for {
-//		logrus.Info("FFFFFFFFFFFFFFFFFFFF")
-//		select {
-//		case <-cs.doneCh:
-//			return
-//		case <-ticker.C:
-//			cs.mutex.Lock()
-//			if !cs.isConnected {
-//				cs.mutex.Unlock()
-//				cs.connectLoop()
-//				logrus.Info("After reconnect")
-//				continue
-//			}
-//
-//			logrus.Info("1111111111")
-//			client := cs.client
-//			cs.mutex.Unlock()
-//
-//			logrus.Info("22222222")
-//			if client == nil {
-//				continue
-//			}
-//
-//			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-//			logrus.Info("listening tools in health check 1")
-//			_, err := client.ListTools(ctx, mgmcp.ListToolsRequest{})
-//			logrus.WithError(err).Info("listening tools in health check 2")
-//			cancel()
-//
-//			if err != nil {
-//				log.Printf("Ping failed: %v", err)
-//				cs.setDisconnected(err)
-//			}
-//		}
-//	}
-//}
+type listener struct {
+	ch chan struct{}
+}
+
+func newListener() *listener {
+	return &listener{
+		ch: make(chan struct{}),
+	}
+}
+
+func (l *listener) OnConnected(_ *mgmcp.InitializeResult) error {
+	l.ch <- struct{}{}
+	return nil
+}
+
+func (cs *Client) WaitForConnection(ctx context.Context) error {
+	if cs.IsConnected() {
+		return nil
+	}
+	l := newListener()
+	defer close(l.ch)
+	//TODO: unregister listener
+	cs.RegisterListener(l)
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context exceeded")
+	case <-l.ch:
+		return nil
+	}
+
+}
 
 func (cs *Client) getClient() mgclient.MCPClient {
 	cs.mutex.Lock()
@@ -303,7 +303,7 @@ func (cs *Client) connectLoop(ctx context.Context) {
 		logrus.Infof("Attempting to reconnect...")
 		err := cs.init(ctx)
 		if err == nil {
-			log.Println("Reconnected successfully")
+			logrus.Infof("Reconnected successfully")
 			return
 		}
 		logrus.Infof("Reconnect failed: %v", err)
@@ -334,14 +334,6 @@ func (cs *Client) keepConnect(ctx context.Context) {
 		}
 	}
 }
-
-//func (cs *Client) setConnected(res *mgmcp.InitializeResult) {
-//	cs.mutex.Lock()
-//	defer cs.mutex.Unlock()
-//
-//	cs.isConnected = true
-//	cs.initResult = res
-//}
 
 func (cs *Client) setDisconnected(client mgclient.MCPClient, err error) {
 	cs.mutex.Lock()
