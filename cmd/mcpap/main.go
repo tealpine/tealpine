@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"github.com/sirupsen/logrus"
 	"mcp-auth-proxy/pkg/proxy"
 )
@@ -22,7 +23,16 @@ func main() {
 	}
 	logrus.Debugf("%+v", cfg)
 
-	//ctx := context.Background()
-	//
-	//_ = proxy.NewClient(ctx, config)
+	ctx := context.Background()
+
+	server := proxy.NewServer(cfg)
+
+	if err = server.Init(ctx); err != nil {
+		logrus.Fatal(err)
+	}
+
+	if err := server.Run(); err != nil {
+		logrus.Fatal(err)
+	}
+
 }
