@@ -11,6 +11,7 @@ type Config struct {
 	Server ServerConfig           `json:"server"`
 	MCP    map[string]MCPConfig   `json:"mcp"`
 	Proxy  map[string]ProxyConfig `json:"proxy"`
+	Users  map[string]UserConfig  `json:"users"`
 }
 
 type ServerConfig struct {
@@ -34,11 +35,24 @@ type ProxyConfig struct {
 	Transport string           `json:"transport"`
 	MCP       string           `json:"mcp,omitempty"`
 	MCPs      []MultiMCPConfig `json:"mcps,omitempty"`
+	Auth      []AuthRule       `json:"auth,omitempty"`
 }
 
 type MultiMCPConfig struct {
 	Name   string `json:"name"`
 	Prefix string `json:"prefix"`
+}
+
+type AuthRule struct {
+	User   string   `json:"user,omitempty"`
+	Group  string   `json:"group,omitempty"`
+	Method string   `json:"method,omitempty"`
+	Allow  []string `json:"allow"`
+}
+
+type UserConfig struct {
+	Token  string   `json:"token"`
+	Groups []string `json:"groups"`
 }
 
 func ReadConfig(path string) (*Config, error) {

@@ -153,6 +153,12 @@ func TestServer(t *testing.T) {
 		})
 		require.NoError(t, err)
 
+		// List all tools
+		toolsResult, err := calcClient.ListTools(ctx, mcp.ListToolsRequest{})
+		require.NoError(t, err)
+		require.Len(t, toolsResult.Tools, 1)
+		require.Equal(t, "calculate", toolsResult.Tools[0].Name)
+
 		result, err := calcClient.CallTool(ctx, mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
 				Name: "calculate",
@@ -245,6 +251,19 @@ func TestServer(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
+
+		// List all tools
+		toolsResult, err := multiClient.ListTools(ctx, mcp.ListToolsRequest{})
+		require.NoError(t, err)
+		require.Len(t, toolsResult.Tools, 4)
+		toolNames := make(map[string]bool)
+		for _, tool := range toolsResult.Tools {
+			toolNames[tool.Name] = true
+		}
+		require.True(t, toolNames["calc_calculate"])
+		require.True(t, toolNames["temp_get_all_temperatures"])
+		require.True(t, toolNames["temp_get_room_temperature"])
+		require.True(t, toolNames["hello_hello_world"])
 
 		// Calc
 		result, err := multiClient.CallTool(ctx, mcp.CallToolRequest{

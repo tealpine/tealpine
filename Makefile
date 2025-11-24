@@ -13,7 +13,7 @@ build:
 .PHONY: test
 test:
 	@echo "Running tests..."
-	@go test -v ./...
+	@go test ./...
 
 .PHONY: format
 format:
@@ -47,3 +47,4 @@ stop-mcps:
 .PHONY: clean
 clean: stop-mcps
 	rm -f temp.pid temp.log calc.pid calc.log
+

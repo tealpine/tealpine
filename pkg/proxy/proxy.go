@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"mcp-auth-proxy/pkg/auth"
 	mgmcp "github.com/mark3labs/mcp-go/mcp"
 	mgserver "github.com/mark3labs/mcp-go/server"
 	"github.com/sirupsen/logrus"
@@ -20,6 +21,7 @@ type SingleProxy struct {
 	client              *Client
 	mcpServer           *mgserver.MCPServer
 	httpHandler         http.Handler
+	auth                *auth.Auth
 	ctx                 context.Context
 	registeredTools     []string
 	registeredResources []string
@@ -28,11 +30,12 @@ type SingleProxy struct {
 
 // NewSingleProxy creates a new proxy that will expose the given client
 // via the specified transport (either "streamablehttp" or "sse")
-func NewSingleProxy(transport string, client *Client, path string) *SingleProxy {
+func NewSingleProxy(transport string, client *Client, path string, authMiddleware *auth.Auth) *SingleProxy {
 	return &SingleProxy{
 		transport: transport,
 		path:      path,
 		client:    client,
+		auth:      authMiddleware,
 	}
 }
 
@@ -214,7 +217,7 @@ func (p *SingleProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "proxy not initialized", http.StatusInternalServerError)
 		return
 	}
-	p.httpHandler.ServeHTTP(w, r)
+	p.auth.Middleware(p.httpHandler).ServeHTTP(w, r)
 }
 
 // multiProxyClientListener is a helper that implements ConnectionListener for MultiProxy
@@ -236,6 +239,7 @@ type MultiProxy struct {
 	mcps             []MultiMCPConfig
 	mcpServer        *mgserver.MCPServer
 	httpHandler      http.Handler
+	auth             *auth.Auth
 	ctx              context.Context
 	registeredTools  map[string][]string // client name -> tool names
 	registeredRes    map[string][]string // client name -> resource URIs
@@ -248,12 +252,14 @@ func NewMultiProxy(
 	clients map[string]*Client,
 	mcps []MultiMCPConfig,
 	path string,
+	authMiddleware *auth.Auth,
 ) *MultiProxy {
 	return &MultiProxy{
 		transport:        transport,
 		path:             path,
 		clients:          clients,
 		mcps:             mcps,
+		auth:             authMiddleware,
 		registeredTools:  make(map[string][]string),
 		registeredRes:    make(map[string][]string),
 		registeredPropts: make(map[string][]string),
@@ -446,5 +452,5 @@ func (p *MultiProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "proxy not initialized", http.StatusInternalServerError)
 		return
 	}
-	p.httpHandler.ServeHTTP(w, r)
+	p.auth.Middleware(p.httpHandler).ServeHTTP(w, r)
 }

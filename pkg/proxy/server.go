@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	"mcp-auth-proxy/pkg/auth"
 )
 
 type Server struct {
@@ -32,19 +34,43 @@ func (s *Server) Init(ctx context.Context) error {
 
 	// 2. Create and initialize all proxies
 	for name, proxyConfig := range s.cfg.Proxy {
+		// Create auth middleware for this proxy
+		users := make(map[string]*auth.UserInfo)
+		for username, userConfig := range s.cfg.Users {
+			users[username] = &auth.UserInfo{
+				Token:  userConfig.Token,
+				Groups: userConfig.Groups,
+			}
+		}
+
+		authRules := make([]auth.AuthRule, 0, len(proxyConfig.Auth))
+		for _, rule := range proxyConfig.Auth {
+			authRules = append(authRules, auth.AuthRule{
+				User:   rule.User,
+				Group:  rule.Group,
+				Method: rule.Method,
+				Allow:  rule.Allow,
+			})
+		}
+
+		authMiddleware, err := auth.NewAuth(users, authRules)
+		if err != nil {
+			return fmt.Errorf("failed to create auth middleware for proxy %s: %w", name, err)
+		}
+
 		var proxy http.Handler
 		if proxyConfig.MCP != "" { // Single Proxy
 			client, ok := s.clients[proxyConfig.MCP]
 			if !ok {
 				return fmt.Errorf("client not found for proxy %s: %s", name, proxyConfig.MCP)
 			}
-			singleProxy := NewSingleProxy(proxyConfig.Transport, client, proxyConfig.Path)
+			singleProxy := NewSingleProxy(proxyConfig.Transport, client, proxyConfig.Path, authMiddleware)
 			if err := singleProxy.Init(ctx); err != nil {
 				return fmt.Errorf("failed to initialize single proxy %s: %w", name, err)
 			}
 			proxy = singleProxy
 		} else if len(proxyConfig.MCPs) > 0 { // Multi Proxy
-			multiProxy := NewMultiProxy(proxyConfig.Transport, s.clients, proxyConfig.MCPs, proxyConfig.Path)
+			multiProxy := NewMultiProxy(proxyConfig.Transport, s.clients, proxyConfig.MCPs, proxyConfig.Path, authMiddleware)
 			if err := multiProxy.Init(ctx); err != nil {
 				return fmt.Errorf("failed to initialize multi proxy %s: %w", name, err)
 			}

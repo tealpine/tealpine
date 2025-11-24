@@ -10,6 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 
+	"mcp-auth-proxy/pkg/auth"
 	mcptest "mcp-auth-proxy/test"
 )
 
@@ -41,8 +42,12 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 	require.NoError(t, err)
 	defer upstreamClient.Close()
 
+	// Create auth middleware (no auth rules for test)
+	authMiddleware, err := auth.NewAuth(make(map[string]*auth.UserInfo), []auth.AuthRule{})
+	require.NoError(t, err)
+
 	// Create proxy
-	proxy := NewSingleProxy("streamablehttp", upstreamClient, "")
+	proxy := NewSingleProxy("streamablehttp", upstreamClient, "", authMiddleware)
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 
@@ -110,8 +115,12 @@ func TestProxySseTemperature(t *testing.T) {
 	require.NoError(t, err)
 	defer upstreamClient.Close()
 
+	// Create auth middleware (no auth rules for test)
+	authMiddleware, err := auth.NewAuth(make(map[string]*auth.UserInfo), []auth.AuthRule{})
+	require.NoError(t, err)
+
 	// Create proxy
-	proxy := NewSingleProxy("sse", upstreamClient, "")
+	proxy := NewSingleProxy("sse", upstreamClient, "", authMiddleware)
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 
@@ -227,8 +236,12 @@ func TestMultiProxy(t *testing.T) {
 		{Name: "hello", Prefix: "hello"},
 	}
 
-	// 4. Create MultiProxy
-	proxy := NewMultiProxy("streamablehttp", clients, multiProxyConfig, "")
+	// 4. Create auth middleware (no auth rules for test)
+	authMiddleware, err := auth.NewAuth(make(map[string]*auth.UserInfo), []auth.AuthRule{})
+	require.NoError(t, err)
+
+	// 5. Create MultiProxy
+	proxy := NewMultiProxy("streamablehttp", clients, multiProxyConfig, "", authMiddleware)
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 

@@ -2,3 +2,4 @@ vendor/
 build/
 *.pid
 *.log
+config.json

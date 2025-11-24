@@ -11,7 +11,10 @@ require (
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
+	github.com/casbin/casbin/v2 v2.134.0 // indirect
+	github.com/casbin/govaluate v1.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
