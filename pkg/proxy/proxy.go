@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"mcp-auth-proxy/pkg/auth"
 	mgmcp "github.com/mark3labs/mcp-go/mcp"
@@ -241,6 +242,7 @@ type MultiProxy struct {
 	httpHandler      http.Handler
 	auth             *auth.Auth
 	ctx              context.Context
+	mu               sync.RWMutex        // protects registeredTools, registeredRes, registeredPropts
 	registeredTools  map[string][]string // client name -> tool names
 	registeredRes    map[string][]string // client name -> resource URIs
 	registeredPropts map[string][]string // client name -> prompt names
@@ -328,6 +330,9 @@ func (p *MultiProxy) onClientConnected(clientName, prefix string, initResult *mg
 
 // clearClientHandlers removes all handlers for a specific client
 func (p *MultiProxy) clearClientHandlers(clientName string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	// Delete tools for this client
 	if toolNames, ok := p.registeredTools[clientName]; ok && len(toolNames) > 0 {
 		p.mcpServer.DeleteTools(toolNames...)
@@ -367,6 +372,7 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 			toolsRequest.Params.Cursor = toolsResult.NextCursor
 		}
 
+		var toolNames []string
 		for _, tool := range allTools {
 			toolCopy := tool
 			toolCopy.Name = prefix + "_" + toolCopy.Name
@@ -374,8 +380,12 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 				request.Params.Name = strings.TrimPrefix(request.Params.Name, prefix+"_")
 				return client.CallTool(ctx, request)
 			})
-			p.registeredTools[clientName] = append(p.registeredTools[clientName], toolCopy.Name)
+			toolNames = append(toolNames, toolCopy.Name)
 		}
+
+		p.mu.Lock()
+		p.registeredTools[clientName] = append(p.registeredTools[clientName], toolNames...)
+		p.mu.Unlock()
 	}
 
 	if initResult.Capabilities.Resources != nil {
@@ -396,6 +406,7 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 			resourcesRequest.Params.Cursor = resourcesResult.NextCursor
 		}
 
+		var resourceURIs []string
 		for _, resource := range allResources {
 			resourceCopy := resource
 			resourceCopy.Name = prefix + "_" + resourceCopy.Name
@@ -407,8 +418,12 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 				}
 				return result.Contents, nil
 			})
-			p.registeredRes[clientName] = append(p.registeredRes[clientName], resourceCopy.URI)
+			resourceURIs = append(resourceURIs, resourceCopy.URI)
 		}
+
+		p.mu.Lock()
+		p.registeredRes[clientName] = append(p.registeredRes[clientName], resourceURIs...)
+		p.mu.Unlock()
 
 		// Note: Resource templates are not registered because they cannot be deleted,
 		// which would cause issues on reconnection. Clients should use regular resources instead.
@@ -432,6 +447,7 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 			promptsRequest.Params.Cursor = promptsResult.NextCursor
 		}
 
+		var promptNames []string
 		for _, prompt := range allPrompts {
 			promptCopy := prompt
 			promptCopy.Name = prefix + "_" + promptCopy.Name
@@ -439,8 +455,12 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 				request.Params.Name = strings.TrimPrefix(request.Params.Name, prefix+"_")
 				return client.GetPrompt(ctx, request)
 			})
-			p.registeredPropts[clientName] = append(p.registeredPropts[clientName], promptCopy.Name)
+			promptNames = append(promptNames, promptCopy.Name)
 		}
+
+		p.mu.Lock()
+		p.registeredPropts[clientName] = append(p.registeredPropts[clientName], promptNames...)
+		p.mu.Unlock()
 	}
 
 	return nil

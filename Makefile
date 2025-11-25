@@ -13,7 +13,7 @@ build:
 .PHONY: test
 test:
 	@echo "Running tests..."
-	@go test ./...
+	@go test -race ./...
 
 .PHONY: format
 format:
