@@ -592,6 +592,30 @@ func TestReadConfig_WithValidation(t *testing.T) {
 	}
 }
 
+func TestValidateMCPConfig_WithBearerToken(t *testing.T) {
+	config := &Config{
+		MCP: map[string]MCPConfig{
+			"test": {
+				Name:      "test",
+				Transport: "sse",
+				URL:       "http://localhost:8080",
+				Bearer:    "my-secret-token",
+			},
+		},
+		Proxy: map[string]ProxyConfig{
+			"p1": {
+				Name: "p1",
+				MCP:  "test",
+			},
+		},
+	}
+
+	err := config.Validate()
+	if err != nil {
+		t.Errorf("expected no error for valid config with bearer token, got: %v", err)
+	}
+}
+
 func writeTestFile(path, content string) error {
 	f, err := os.Create(path)
 	if err != nil {

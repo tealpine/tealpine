@@ -26,6 +26,7 @@ type MCPConfig struct {
 	Cmd            string        `json:"cmd"`
 	CmdArgs        []string      `json:"args"`
 	URL            string        `json:"url"`
+	Bearer         string        `json:"bearer,omitempty"`
 	PingInterval   time.Duration `json:"pingInterval"`
 	ReconnectDelay time.Duration `json:"reconnectDelay"`
 }

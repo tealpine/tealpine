@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	mgclient "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	mgmcp "github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus"
 	"sync"
@@ -85,11 +86,26 @@ func (cs *Client) init(ctx context.Context) error {
 	cs.log.Infof("creating new client")
 	var err error
 	var client mgclient.MCPClient
+
 	switch cs.cfg.Transport {
 	case "sse":
-		client, err = mgclient.NewSSEMCPClient(cs.cfg.URL)
+		var options []transport.ClientOption
+		if cs.cfg.Bearer != "" {
+			headers := map[string]string{
+				"Authorization": "Bearer " + cs.cfg.Bearer,
+			}
+			options = append(options, transport.WithHeaders(headers))
+		}
+		client, err = mgclient.NewSSEMCPClient(cs.cfg.URL, options...)
 	case "streamablehttp":
-		client, err = mgclient.NewStreamableHttpClient(cs.cfg.URL)
+		var options []transport.StreamableHTTPCOption
+		if cs.cfg.Bearer != "" {
+			headers := map[string]string{
+				"Authorization": "Bearer " + cs.cfg.Bearer,
+			}
+			options = append(options, transport.WithHTTPHeaders(headers))
+		}
+		client, err = mgclient.NewStreamableHttpClient(cs.cfg.URL, options...)
 	case "stdio":
 		client, err = mgclient.NewStdioMCPClient(cs.cfg.Cmd, []string{}, cs.cfg.CmdArgs...)
 	}

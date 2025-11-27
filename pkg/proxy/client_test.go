@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -277,6 +278,184 @@ func TestClientWithStdioServer(t *testing.T) {
 	textContent, ok = result.Content[0].(mcp.TextContent)
 	require.True(t, ok, "Content should be TextContent")
 	require.Equal(t, "Hello, Bob!", textContent.Text, "Greeting should match")
+
+	// Close the client
+	err = client.Close()
+	require.NoError(t, err, "Failed to close client")
+}
+
+func TestClientWithBearerToken_SSE(t *testing.T) {
+	expectedToken := "test-bearer-token-123"
+	receivedToken := ""
+
+	// Create a custom handler that checks for the Authorization header
+	calcServer := &mcptest.MCPCalculator{}
+	baseHandler, err := calcServer.GetHTTPHandler()
+	require.NoError(t, err, "Failed to get HTTP handler")
+
+	// Wrap the handler to capture the Authorization header
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" {
+			receivedToken = authHeader
+		}
+		baseHandler.ServeHTTP(w, r)
+	})
+
+	// Create httptest server
+	testServer := httptest.NewServer(handler)
+	defer testServer.Close()
+
+	// Create client configuration with bearer token
+	config := MCPConfig{
+		Name:      "calculator-bearer-test",
+		Transport: "sse",
+		URL:       testServer.URL + "/sse",
+		Bearer:    expectedToken,
+	}
+
+	// Create and initialize the client
+	client := NewClient(config)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client.Start(ctx)
+	err = client.WaitForConnection(ctx)
+	require.NoError(t, err, "Failed to initialize client")
+	require.NotNil(t, client.initResult, "Init result should not be nil")
+
+	// Verify the bearer token was sent
+	require.Equal(t, "Bearer "+expectedToken, receivedToken, "Authorization header should contain bearer token")
+
+	// Test that the client can successfully call tools
+	result, err := client.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "calculate",
+			Arguments: map[string]interface{}{
+				"operation": "add",
+				"x":         5,
+				"y":         3,
+			},
+		},
+	})
+	require.NoError(t, err, "Failed to call calculate tool")
+	require.NotNil(t, result, "Result should not be nil")
+	require.False(t, result.IsError, "Result should not be an error")
+
+	textContent, ok := result.Content[0].(mcp.TextContent)
+	require.True(t, ok, "Content should be TextContent")
+	require.Equal(t, "8.00", textContent.Text, "Addition result should be 8.00")
+
+	// Close the client
+	err = client.Close()
+	require.NoError(t, err, "Failed to close client")
+}
+
+func TestClientWithBearerToken_StreamableHTTP(t *testing.T) {
+	expectedToken := "test-bearer-token-456"
+	receivedToken := ""
+
+	// Create a custom handler that checks for the Authorization header
+	tempServer := &mcptest.MCPTemperature{}
+	baseHandler, err := tempServer.GetHTTPHandler()
+	require.NoError(t, err, "Failed to get HTTP handler")
+
+	// Wrap the handler to capture the Authorization header
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" {
+			receivedToken = authHeader
+		}
+		baseHandler.ServeHTTP(w, r)
+	})
+
+	// Create httptest server
+	testServer := httptest.NewServer(handler)
+	defer testServer.Close()
+
+	// Create client configuration with bearer token
+	config := MCPConfig{
+		Name:      "temperature-bearer-test",
+		Transport: "streamablehttp",
+		URL:       testServer.URL + "/mcp",
+		Bearer:    expectedToken,
+	}
+
+	// Create and initialize the client
+	client := NewClient(config)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client.Start(ctx)
+	err = client.WaitForConnection(ctx)
+	require.NoError(t, err, "Failed to initialize client")
+	require.NotNil(t, client.initResult, "Init result should not be nil")
+
+	// Verify the bearer token was sent
+	require.Equal(t, "Bearer "+expectedToken, receivedToken, "Authorization header should contain bearer token")
+
+	// Test that the client can successfully call tools
+	result, err := client.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "get_room_temperature",
+			Arguments: map[string]interface{}{
+				"room": "kitchen",
+			},
+		},
+	})
+	require.NoError(t, err, "Failed to call get_room_temperature tool")
+	require.NotNil(t, result, "Result should not be nil")
+	require.False(t, result.IsError, "Result should not be an error")
+
+	textContent, ok := result.Content[0].(mcp.TextContent)
+	require.True(t, ok, "Content should be TextContent")
+	require.Contains(t, textContent.Text, "temperature in the kitchen", "Response should contain temperature")
+
+	// Close the client
+	err = client.Close()
+	require.NoError(t, err, "Failed to close client")
+}
+
+func TestClientWithoutBearerToken(t *testing.T) {
+	// Verify that no Authorization header is sent when bearer token is not configured
+	receivedAuthHeader := false
+
+	// Create a custom handler that checks for the Authorization header
+	calcServer := &mcptest.MCPCalculator{}
+	baseHandler, err := calcServer.GetHTTPHandler()
+	require.NoError(t, err, "Failed to get HTTP handler")
+
+	// Wrap the handler to check if Authorization header exists
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			receivedAuthHeader = true
+		}
+		baseHandler.ServeHTTP(w, r)
+	})
+
+	// Create httptest server
+	testServer := httptest.NewServer(handler)
+	defer testServer.Close()
+
+	// Create client configuration WITHOUT bearer token
+	config := MCPConfig{
+		Name:      "calculator-no-bearer-test",
+		Transport: "sse",
+		URL:       testServer.URL + "/sse",
+		// Bearer is not set
+	}
+
+	// Create and initialize the client
+	client := NewClient(config)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client.Start(ctx)
+	err = client.WaitForConnection(ctx)
+	require.NoError(t, err, "Failed to initialize client")
+
+	// Verify no Authorization header was sent
+	require.False(t, receivedAuthHeader, "Authorization header should not be sent when bearer token is not configured")
 
 	// Close the client
 	err = client.Close()

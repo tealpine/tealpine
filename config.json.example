@@ -6,12 +6,14 @@
     "calculator": {
       "name": "calculator",
       "transport": "sse",
-      "url": "http://localhost:7751/sse"
+      "url": "http://localhost:7751/sse",
+      "bearer": "some_random_token2"
     },
     "temperature": {
       "name": "temperature",
       "transport": "streamablehttp",
-      "url": "http://localhost:7752/mcp"
+      "url": "http://localhost:7752/mcp",
+      "bearer": "some_random_token2"
     },
     "hello": {
       "name": "hello",
