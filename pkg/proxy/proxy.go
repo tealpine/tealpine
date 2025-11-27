@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"mcp-auth-proxy/pkg/auth"
 	mgmcp "github.com/mark3labs/mcp-go/mcp"
 	mgserver "github.com/mark3labs/mcp-go/server"
 	"github.com/sirupsen/logrus"
+	"mcp-auth-proxy/pkg/auth"
 )
 
 // SingleProxy acts as a bridge between MCP clients and servers
