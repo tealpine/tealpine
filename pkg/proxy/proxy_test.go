@@ -6,8 +6,7 @@ import (
 	"testing"
 	"time"
 
-	mgclient "github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
 	"mcp-auth-proxy/pkg/auth"
@@ -27,8 +26,8 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 	// Create upstream client configuration
 	upstreamConfig := MCPConfig{
 		Name:      "calculator",
-		Transport: "sse",
-		URL:       upstreamServer.URL + "/sse",
+		Transport: "streamablehttp",
+		URL:       upstreamServer.URL + "/mcp",
 	}
 
 	// Initialize upstream client
@@ -56,38 +55,35 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 	defer httpServer.Close()
 
 	// Create proxy client
-	proxyClient, err := mgclient.NewStreamableHttpClient(httpServer.URL + "/mcp")
-	require.NoError(t, err)
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "test-proxy-client",
+		Version: "1.0.0",
+	}, nil)
 
-	err = proxyClient.Start(ctx)
-	require.NoError(t, err)
-	defer proxyClient.Close()
+	transport := &mcp.StreamableClientTransport{
+		Endpoint: httpServer.URL + "/mcp",
+	}
 
-	_, err = proxyClient.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-		},
-	})
+	session, err := client.Connect(ctx, transport, nil)
 	require.NoError(t, err)
+	defer session.Close()
 
 	// Test tool call
-	result, err := proxyClient.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "calculate",
-			Arguments: map[string]interface{}{
-				"operation": "add",
-				"x":         20,
-				"y":         22,
-			},
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "calculate",
+		Arguments: map[string]interface{}{
+			"operation": "add",
+			"x":         20,
+			"y":         22,
 		},
 	})
 
 	require.NoError(t, err)
 	require.False(t, result.IsError)
-	require.Equal(t, "42.00", result.Content[0].(mcp.TextContent).Text)
+	require.Equal(t, "42.00", result.Content[0].(*mcp.TextContent).Text)
 }
 
-func TestProxySseTemperature(t *testing.T) {
+func TestProxyStreamableHttpTemperature(t *testing.T) {
 	// Create the MCP temperature server
 	tempServer := &mcptest.MCPTemperature{}
 	handler, err := tempServer.GetHTTPHandler()
@@ -120,7 +116,7 @@ func TestProxySseTemperature(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create proxy
-	proxy := NewSingleProxy("sse", upstreamClient, "", authMiddleware)
+	proxy := NewSingleProxy("streamablehttp", upstreamClient, "", authMiddleware)
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 
@@ -129,33 +125,30 @@ func TestProxySseTemperature(t *testing.T) {
 	defer httpServer.Close()
 
 	// Create proxy client
-	proxyClient, err := mgclient.NewSSEMCPClient(httpServer.URL + "/sse")
-	require.NoError(t, err)
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "test-temp-proxy-client",
+		Version: "1.0.0",
+	}, nil)
 
-	err = proxyClient.Start(ctx)
-	require.NoError(t, err)
-	defer proxyClient.Close()
+	transport := &mcp.StreamableClientTransport{
+		Endpoint: httpServer.URL + "/mcp",
+	}
 
-	_, err = proxyClient.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-		},
-	})
+	session, err := client.Connect(ctx, transport, nil)
 	require.NoError(t, err)
+	defer session.Close()
 
 	// Test tool call
-	result, err := proxyClient.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "get_room_temperature",
-			Arguments: map[string]interface{}{
-				"room": "bedroom",
-			},
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_room_temperature",
+		Arguments: map[string]interface{}{
+			"room": "bedroom",
 		},
 	})
 
 	require.NoError(t, err)
 	require.False(t, result.IsError)
-	require.Contains(t, result.Content[0].(mcp.TextContent).Text, "The temperature in the bedroom is")
+	require.Contains(t, result.Content[0].(*mcp.TextContent).Text, "The temperature in the bedroom is")
 }
 
 func TestMultiProxy(t *testing.T) {
@@ -186,8 +179,8 @@ func TestMultiProxy(t *testing.T) {
 	// Calculator client
 	calcConfig := MCPConfig{
 		Name:      "calculator",
-		Transport: "sse",
-		URL:       calcUpstreamServer.URL + "/sse",
+		Transport: "streamablehttp",
+		URL:       calcUpstreamServer.URL + "/mcp",
 	}
 	calcClient := NewClient(calcConfig)
 	calcClient.Start(ctx)
@@ -245,63 +238,57 @@ func TestMultiProxy(t *testing.T) {
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 
-	// 5. Start test server
+	// 6. Start test server
 	httpServer := httptest.NewServer(proxy)
 	defer httpServer.Close()
 
-	// 6. Create client for the proxy
-	proxyClient, err := mgclient.NewStreamableHttpClient(httpServer.URL + "/mcp")
-	require.NoError(t, err)
-	err = proxyClient.Start(ctx)
-	require.NoError(t, err)
-	defer proxyClient.Close()
+	// 7. Create client for the proxy
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "test-multi-proxy-client",
+		Version: "1.0.0",
+	}, nil)
 
-	_, err = proxyClient.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-		},
-	})
-	require.NoError(t, err)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint: httpServer.URL + "/mcp",
+	}
 
-	// 7. Call tools
+	session, err := client.Connect(ctx, transport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	// 8. Call tools
 	// Calculator
-	result, err := proxyClient.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "calc_calculate", // Prefixed name
-			Arguments: map[string]interface{}{
-				"operation": "multiply",
-				"x":         6,
-				"y":         7,
-			},
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "calc_calculate", // Prefixed name
+		Arguments: map[string]interface{}{
+			"operation": "multiply",
+			"x":         6,
+			"y":         7,
 		},
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
-	require.Equal(t, "42.00", result.Content[0].(mcp.TextContent).Text)
+	require.Equal(t, "42.00", result.Content[0].(*mcp.TextContent).Text)
 
 	// Temperature
-	result, err = proxyClient.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "temp_get_room_temperature", // Prefixed name
-			Arguments: map[string]interface{}{
-				"room": "living room",
-			},
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "temp_get_room_temperature", // Prefixed name
+		Arguments: map[string]interface{}{
+			"room": "living room",
 		},
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
-	require.Contains(t, result.Content[0].(mcp.TextContent).Text, "The temperature in the living room is")
+	require.Contains(t, result.Content[0].(*mcp.TextContent).Text, "The temperature in the living room is")
 
 	// Hello
-	result, err = proxyClient.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "hello_hello_world", // Prefixed name
-			Arguments: map[string]interface{}{
-				"name": "Multi-Proxy",
-			},
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "hello_hello_world", // Prefixed name
+		Arguments: map[string]interface{}{
+			"name": "Multi-Proxy",
 		},
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
-	require.Equal(t, "Hello, Multi-Proxy!", result.Content[0].(mcp.TextContent).Text)
+	require.Equal(t, "Hello, Multi-Proxy!", result.Content[0].(*mcp.TextContent).Text)
 }

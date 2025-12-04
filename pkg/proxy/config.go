@@ -86,13 +86,12 @@ func (c *Config) Validate() error {
 func validateMCPConfig(name string, mcp *MCPConfig) error {
 	// Validate transport field
 	validTransports := map[string]bool{
-		"stdio":           true,
-		"sse":             true,
-		"streamablehttp":  true,
+		"stdio":          true,
+		"streamablehttp": true,
 	}
 
 	if !validTransports[mcp.Transport] {
-		return fmt.Errorf("mcp '%s': invalid transport '%s', must be one of: stdio, sse, streamablehttp", name, mcp.Transport)
+		return fmt.Errorf("mcp '%s': invalid transport '%s', must be one of: stdio, streamablehttp", name, mcp.Transport)
 	}
 
 	// Validate stdio transport requirements
@@ -104,7 +103,7 @@ func validateMCPConfig(name string, mcp *MCPConfig) error {
 			return fmt.Errorf("mcp '%s': 'url' cannot be set when transport is 'stdio'", name)
 		}
 	} else {
-		// For sse and streamablehttp transports
+		// For streamablehttp transport
 		if mcp.Cmd != "" {
 			return fmt.Errorf("mcp '%s': 'cmd' cannot be set when transport is '%s'", name, mcp.Transport)
 		}

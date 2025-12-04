@@ -3,19 +3,32 @@ package test
 import (
 	"context"
 	"errors"
-	"github.com/sirupsen/logrus"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	mgclient "github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/sirupsen/logrus"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
 	"mcp-auth-proxy/pkg/proxy"
 )
+
+// bearerAuthTransport wraps an http.RoundTripper to add Bearer token authorization
+type bearerAuthTransport struct {
+	wrapped http.RoundTripper
+	bearer  string
+}
+
+func (t *bearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Clone the request to avoid modifying the original
+	req2 := req.Clone(req.Context())
+	req2.Header.Set("Authorization", "Bearer "+t.bearer)
+	return t.wrapped.RoundTrip(req2)
+}
 
 func TestServer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -51,13 +64,15 @@ func TestServer(t *testing.T) {
 		MCP: map[string]proxy.MCPConfig{
 			"calculator": {
 				Name:      "calculator",
-				Transport: "sse",
-				URL:       calcUpstreamServer.URL + "/sse",
+				Transport: "streamablehttp",
+				URL:       calcUpstreamServer.URL + "/mcp",
+				Bearer:    "upstream-calc-token",
 			},
 			"temperature": {
 				Name:      "temperature",
 				Transport: "streamablehttp",
 				URL:       tempUpstreamServer.URL + "/mcp",
+				Bearer:    "upstream-temp-token",
 			},
 			"hello": {
 				Name:      "hello",
@@ -77,18 +92,54 @@ func TestServer(t *testing.T) {
 				Path:      "calc",
 				Transport: "streamablehttp",
 				MCP:       "calculator",
+				Auth: []proxy.AuthRule{
+					{
+						User:   "test-user",
+						Method: "tools/list",
+						Allow:  []string{"*"},
+					},
+					{
+						User:   "test-user",
+						Method: "tools/call",
+						Allow:  []string{"*"},
+					},
+				},
 			},
 			"temp": {
 				Name:      "temp",
 				Path:      "temp",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				MCP:       "temperature",
+				Auth: []proxy.AuthRule{
+					{
+						User:   "test-user",
+						Method: "tools/list",
+						Allow:  []string{"*"},
+					},
+					{
+						User:   "test-user",
+						Method: "tools/call",
+						Allow:  []string{"*"},
+					},
+				},
 			},
 			"hello": {
 				Name:      "hello",
 				Path:      "hello",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				MCP:       "hello",
+				Auth: []proxy.AuthRule{
+					{
+						Group:  "admins",
+						Method: "tools/list",
+						Allow:  []string{"*"},
+					},
+					{
+						Group:  "admins",
+						Method: "tools/call",
+						Allow:  []string{"*"},
+					},
+				},
 			},
 			"multi": {
 				Name:      "multi",
@@ -99,16 +150,24 @@ func TestServer(t *testing.T) {
 					{Name: "temperature", Prefix: "temp"},
 					{Name: "hello", Prefix: "hello"},
 				},
-			},
-			"multisse": {
-				Name:      "multisse",
-				Path:      "multisse",
-				Transport: "sse",
-				MCPs: []proxy.MultiMCPConfig{
-					{Name: "calculator", Prefix: "calc"},
-					{Name: "temperature", Prefix: "temp"},
-					{Name: "hello", Prefix: "hello"},
+				Auth: []proxy.AuthRule{
+					{
+						Group:  "power-users",
+						Method: "tools/list",
+						Allow:  []string{"*"},
+					},
+					{
+						Group:  "power-users",
+						Method: "tools/call",
+						Allow:  []string{"*"},
+					},
 				},
+			},
+		},
+		Users: map[string]proxy.UserConfig{
+			"test-user": {
+				Token:  "test-user-token",
+				Groups: []string{"admins", "power-users"},
 			},
 		},
 	}
@@ -140,120 +199,131 @@ func TestServer(t *testing.T) {
 
 	// Test "calc" proxy (streamablehttp)
 	t.Run("SingleProxy_Calculator_StreamableHTTP", func(t *testing.T) {
-		calcClient, err := mgclient.NewStreamableHttpClient("http://" + serverAddr + "/calc/mcp")
-		require.NoError(t, err)
-		err = calcClient.Start(ctx)
-		require.NoError(t, err)
-		defer calcClient.Close()
+		client := mcp.NewClient(&mcp.Implementation{
+			Name:    "test-calc-client",
+			Version: "1.0.0",
+		}, nil)
 
-		_, err = calcClient.Initialize(ctx, mcp.InitializeRequest{
-			Params: mcp.InitializeParams{
-				ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+		transport := &mcp.StreamableClientTransport{
+			Endpoint: "http://" + serverAddr + "/calc/mcp",
+			HTTPClient: &http.Client{
+				Transport: &bearerAuthTransport{
+					wrapped: http.DefaultTransport,
+					bearer:  "test-user-token",
+				},
 			},
-		})
+		}
+
+		session, err := client.Connect(ctx, transport, nil)
 		require.NoError(t, err)
+		defer session.Close()
 
 		// List all tools
-		toolsResult, err := calcClient.ListTools(ctx, mcp.ListToolsRequest{})
+		toolsResult, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 		require.NoError(t, err)
 		require.Len(t, toolsResult.Tools, 1)
 		require.Equal(t, "calculate", toolsResult.Tools[0].Name)
 
-		result, err := calcClient.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "calculate",
-				Arguments: map[string]interface{}{
-					"operation": "add",
-					"x":         1,
-					"y":         2,
-				},
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "calculate",
+			Arguments: map[string]interface{}{
+				"operation": "add",
+				"x":         1,
+				"y":         2,
 			},
 		})
 		require.NoError(t, err)
 		require.False(t, result.IsError)
-		require.Equal(t, "3.00", result.Content[0].(mcp.TextContent).Text)
+		require.Equal(t, "3.00", result.Content[0].(*mcp.TextContent).Text)
 	})
 
-	// Test "temp" proxy (sse)
-	t.Run("SingleProxy_Temperature_SSE", func(t *testing.T) {
-		tempClient, err := mgclient.NewSSEMCPClient("http://" + serverAddr + "/temp/sse")
-		require.NoError(t, err)
-		err = tempClient.Start(ctx)
-		require.NoError(t, err)
-		defer tempClient.Close()
+	// Test "temp" proxy (streamablehttp)
+	t.Run("SingleProxy_Temperature_StreamableHTTP", func(t *testing.T) {
+		client := mcp.NewClient(&mcp.Implementation{
+			Name:    "test-temp-client",
+			Version: "1.0.0",
+		}, nil)
 
-		_, err = tempClient.Initialize(ctx, mcp.InitializeRequest{
-			Params: mcp.InitializeParams{
-				ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			},
-		})
-		require.NoError(t, err)
-
-		result, err := tempClient.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "get_room_temperature",
-				Arguments: map[string]interface{}{
-					"room": "kitchen",
+		transport := &mcp.StreamableClientTransport{
+			Endpoint: "http://" + serverAddr + "/temp/mcp",
+			HTTPClient: &http.Client{
+				Transport: &bearerAuthTransport{
+					wrapped: http.DefaultTransport,
+					bearer:  "test-user-token",
 				},
+			},
+		}
+
+		session, err := client.Connect(ctx, transport, nil)
+		require.NoError(t, err)
+		defer session.Close()
+
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "get_room_temperature",
+			Arguments: map[string]interface{}{
+				"room": "kitchen",
 			},
 		})
 		require.NoError(t, err)
 		require.False(t, result.IsError)
-		require.Contains(t, result.Content[0].(mcp.TextContent).Text, "The temperature in the kitchen is")
+		require.Contains(t, result.Content[0].(*mcp.TextContent).Text, "The temperature in the kitchen is")
 	})
 
-	// Test "hello" proxy (sse)
-	t.Run("SingleProxy_Hello_SSE", func(t *testing.T) {
-		helloClient, err := mgclient.NewSSEMCPClient("http://" + serverAddr + "/hello/sse")
-		require.NoError(t, err)
-		err = helloClient.Start(ctx)
-		require.NoError(t, err)
-		defer func() {
-			err := helloClient.Close()
-			require.NoError(t, err)
-		}()
+	// Test "hello" proxy (streamablehttp)
+	t.Run("SingleProxy_Hello_StreamableHTTP", func(t *testing.T) {
+		client := mcp.NewClient(&mcp.Implementation{
+			Name:    "test-hello-client",
+			Version: "1.0.0",
+		}, nil)
 
-		_, err = helloClient.Initialize(ctx, mcp.InitializeRequest{
-			Params: mcp.InitializeParams{
-				ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			},
-		})
-
-		require.NoError(t, err)
-
-		result, err := helloClient.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "hello_world",
-				Arguments: map[string]interface{}{
-					"name": "Server",
+		transport := &mcp.StreamableClientTransport{
+			Endpoint: "http://" + serverAddr + "/hello/mcp",
+			HTTPClient: &http.Client{
+				Transport: &bearerAuthTransport{
+					wrapped: http.DefaultTransport,
+					bearer:  "test-user-token",
 				},
+			},
+		}
+
+		session, err := client.Connect(ctx, transport, nil)
+		require.NoError(t, err)
+		defer session.Close()
+
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "hello_world",
+			Arguments: map[string]interface{}{
+				"name": "Server",
 			},
 		})
 		require.NoError(t, err)
 		require.False(t, result.IsError)
-		require.Equal(t, "Hello, Server!", result.Content[0].(mcp.TextContent).Text)
+		require.Equal(t, "Hello, Server!", result.Content[0].(*mcp.TextContent).Text)
 	})
 
 	// Test "multi" proxy (streamablehttp)
 	t.Run("MultiProxy_All_StreamableHTTP", func(t *testing.T) {
-		multiClient, err := mgclient.NewStreamableHttpClient("http://" + serverAddr + "/multi/mcp")
-		require.NoError(t, err)
-		err = multiClient.Start(ctx)
-		require.NoError(t, err)
-		defer func() {
-			err := multiClient.Close()
-			require.NoError(t, err)
-		}()
+		client := mcp.NewClient(&mcp.Implementation{
+			Name:    "test-multi-client",
+			Version: "1.0.0",
+		}, nil)
 
-		_, err = multiClient.Initialize(ctx, mcp.InitializeRequest{
-			Params: mcp.InitializeParams{
-				ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+		transport := &mcp.StreamableClientTransport{
+			Endpoint: "http://" + serverAddr + "/multi/mcp",
+			HTTPClient: &http.Client{
+				Transport: &bearerAuthTransport{
+					wrapped: http.DefaultTransport,
+					bearer:  "test-user-token",
+				},
 			},
-		})
+		}
+
+		session, err := client.Connect(ctx, transport, nil)
 		require.NoError(t, err)
+		defer session.Close()
 
 		// List all tools
-		toolsResult, err := multiClient.ListTools(ctx, mcp.ListToolsRequest{})
+		toolsResult, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 		require.NoError(t, err)
 		require.Len(t, toolsResult.Tools, 4)
 		toolNames := make(map[string]bool)
@@ -266,106 +336,41 @@ func TestServer(t *testing.T) {
 		require.True(t, toolNames["hello_hello_world"])
 
 		// Calc
-		result, err := multiClient.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "calc_calculate",
-				Arguments: map[string]interface{}{
-					"operation": "subtract",
-					"x":         10,
-					"y":         3,
-				},
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "calc_calculate",
+			Arguments: map[string]interface{}{
+				"operation": "subtract",
+				"x":         10,
+				"y":         3,
 			},
 		})
 		require.NoError(t, err)
 		require.False(t, result.IsError)
-		require.Equal(t, "7.00", result.Content[0].(mcp.TextContent).Text)
+		require.Equal(t, "7.00", result.Content[0].(*mcp.TextContent).Text)
 
 		// Temp
-		result, err = multiClient.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "temp_get_room_temperature",
-				Arguments: map[string]interface{}{
-					"room": "bedroom",
-				},
+		result, err = session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "temp_get_room_temperature",
+			Arguments: map[string]interface{}{
+				"room": "bedroom",
 			},
 		})
 		require.NoError(t, err)
 		require.False(t, result.IsError)
-		require.Contains(t, result.Content[0].(mcp.TextContent).Text, "The temperature in the bedroom is")
+		require.Contains(t, result.Content[0].(*mcp.TextContent).Text, "The temperature in the bedroom is")
 
 		// Hello
-		result, err = multiClient.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "hello_hello_world",
-				Arguments: map[string]interface{}{
-					"name": "Final Test",
-				},
+		result, err = session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "hello_hello_world",
+			Arguments: map[string]interface{}{
+				"name": "Final Test",
 			},
 		})
 		require.NoError(t, err)
 		require.False(t, result.IsError)
-		require.Equal(t, "Hello, Final Test!", result.Content[0].(mcp.TextContent).Text)
+		require.Equal(t, "Hello, Final Test!", result.Content[0].(*mcp.TextContent).Text)
 	})
 
-	// Test "multisse" proxy (sse)
-	t.Run("MultiProxy_All_SSE", func(t *testing.T) {
-		multiClient, err := mgclient.NewSSEMCPClient("http://" + serverAddr + "/multisse/sse")
-		require.NoError(t, err)
-		err = multiClient.Start(ctx)
-		require.NoError(t, err)
-		defer func() {
-			err := multiClient.Close()
-			require.NoError(t, err)
-		}()
-
-		_, err = multiClient.Initialize(ctx, mcp.InitializeRequest{
-			Params: mcp.InitializeParams{
-				ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			},
-		})
-		require.NoError(t, err)
-
-		// Calc
-		result, err := multiClient.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "calc_calculate",
-				Arguments: map[string]interface{}{
-					"operation": "subtract",
-					"x":         10,
-					"y":         3,
-				},
-			},
-		})
-		require.NoError(t, err)
-		require.False(t, result.IsError)
-		require.Equal(t, "7.00", result.Content[0].(mcp.TextContent).Text)
-
-		// Temp
-		result, err = multiClient.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "temp_get_room_temperature",
-				Arguments: map[string]interface{}{
-					"room": "bedroom",
-				},
-			},
-		})
-		require.NoError(t, err)
-		require.False(t, result.IsError)
-		require.Contains(t, result.Content[0].(mcp.TextContent).Text, "The temperature in the bedroom is")
-
-		// Hello
-		result, err = multiClient.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "hello_hello_world",
-				Arguments: map[string]interface{}{
-					"name": "Final Test",
-				},
-			},
-		})
-		require.NoError(t, err)
-		require.False(t, result.IsError)
-		require.Equal(t, "Hello, Final Test!", result.Content[0].(mcp.TextContent).Text)
-	})
 }
 
 func TestServerWithUpstreamServerRestart(t *testing.T) {
@@ -381,7 +386,7 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 	upstreamListener, err := net.Listen("tcp", "localhost:0")
 	require.NoError(t, err)
 	upstreamAddr := upstreamListener.Addr().String()
-	upstreamURL := "http://" + upstreamAddr + "/sse"
+	upstreamURL := "http://" + upstreamAddr + "/mcp"
 
 	// Create http.Server for upstream
 	calcUpstreamServer := &http.Server{
@@ -414,8 +419,9 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 		MCP: map[string]proxy.MCPConfig{
 			"calculator": {
 				Name:           "calculator",
-				Transport:      "sse",
+				Transport:      "streamablehttp",
 				URL:            upstreamURL,
+				Bearer:         "upstream-calc-token",
 				ReconnectDelay: 500 * time.Millisecond,
 				PingInterval:   500 * time.Millisecond,
 			},
@@ -426,6 +432,19 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 				Path:      "calc",
 				Transport: "streamablehttp",
 				MCP:       "calculator",
+				Auth: []proxy.AuthRule{
+					{
+						User:   "test-user",
+						Method: "tools/call",
+						Allow:  []string{"calculate"},
+					},
+				},
+			},
+		},
+		Users: map[string]proxy.UserConfig{
+			"test-user": {
+				Token:  "test-user-token",
+				Groups: []string{},
 			},
 		},
 	}
@@ -454,37 +473,41 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 	}()
 
 	// 6. Create client and test initial connection
-	client, err := mgclient.NewStreamableHttpClient("http://" + serverAddr + "/calc/mcp")
-	require.NoError(t, err)
-	err = client.Start(ctx)
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "test-restart-client",
+		Version: "1.0.0",
+	}, nil)
+
+	transport := &mcp.StreamableClientTransport{
+		Endpoint: "http://" + serverAddr + "/calc/mcp",
+		HTTPClient: &http.Client{
+			Transport: &bearerAuthTransport{
+				wrapped: http.DefaultTransport,
+				bearer:  "test-user-token",
+			},
+		},
+	}
+
+	session, err := client.Connect(ctx, transport, nil)
 	require.NoError(t, err)
 	defer func() {
-		if err := client.Close(); err != nil {
-			logrus.Errorf("Error closing client: %v", err)
+		if err := session.Close(); err != nil {
+			logrus.Errorf("Error closing session: %v", err)
 		}
 	}()
 
-	_, err = client.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-		},
-	})
-	require.NoError(t, err)
-
 	// 7. Query tool - should succeed
-	result, err := client.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "calculate",
-			Arguments: map[string]interface{}{
-				"operation": "add",
-				"x":         5,
-				"y":         3,
-			},
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "calculate",
+		Arguments: map[string]interface{}{
+			"operation": "add",
+			"x":         5,
+			"y":         3,
 		},
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
-	require.Equal(t, "8.00", result.Content[0].(mcp.TextContent).Text)
+	require.Equal(t, "8.00", result.Content[0].(*mcp.TextContent).Text)
 
 	// 8. Stop the upstream MCP server
 	logrus.Info("Stop the upstream MCP server")
@@ -498,14 +521,12 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 
 	// 9. Query tool again - should fail with connection error
 	logrus.Info("Query closed upstream MCP server")
-	_, err = client.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "calculate",
-			Arguments: map[string]interface{}{
-				"operation": "multiply",
-				"x":         4,
-				"y":         2,
-			},
+	_, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "calculate",
+		Arguments: map[string]interface{}{
+			"operation": "multiply",
+			"x":         4,
+			"y":         2,
 		},
 	})
 	require.Error(t, err, "Tool call should fail when upstream server is stopped")
@@ -551,24 +572,19 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 
 	// 11. Query tool again - should succeed after restart
 	logrus.Info("Query tool after restart")
-	callReq := mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "calculate",
-			Arguments: map[string]interface{}{
-				"operation": "subtract",
-				"x":         10,
-				"y":         4,
-			},
+	callParams := &mcp.CallToolParams{
+		Name: "calculate",
+		Arguments: map[string]interface{}{
+			"operation": "subtract",
+			"x":         10,
+			"y":         4,
 		},
 	}
 
-	result, err = client.CallTool(ctx, callReq)
-	require.Error(t, err) // Bug in mcp-go
-
-	result, err = client.CallTool(ctx, callReq)
-	require.NoError(t, err) // Bug in mcp-go: https://github.com/mark3labs/mcp-go/issues/638
+	result, err = session.CallTool(ctx, callParams)
+	require.NoError(t, err)
 
 	require.False(t, result.IsError)
-	require.Equal(t, "6.00", result.Content[0].(mcp.TextContent).Text)
+	require.Equal(t, "6.00", result.Content[0].(*mcp.TextContent).Text)
 	logrus.Info("Test done")
 }

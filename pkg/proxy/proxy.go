@@ -7,20 +7,20 @@ import (
 	"strings"
 	"sync"
 
-	mgmcp "github.com/mark3labs/mcp-go/mcp"
-	mgserver "github.com/mark3labs/mcp-go/server"
-	"github.com/sirupsen/logrus"
 	"mcp-auth-proxy/pkg/auth"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/sirupsen/logrus"
 )
 
 // SingleProxy acts as a bridge between MCP clients and servers
-// It exposes an MCP server (via StreamableHTTP or SSE) and forwards
+// It exposes an MCP server (via StreamableHTTP) and forwards
 // all requests to an upstream MCP client
 type SingleProxy struct {
 	transport           string
 	path                string
 	client              *Client
-	mcpServer           *mgserver.MCPServer
+	mcpServer           *mcp.Server
 	httpHandler         http.Handler
 	auth                *auth.Auth
 	ctx                 context.Context
@@ -30,7 +30,7 @@ type SingleProxy struct {
 }
 
 // NewSingleProxy creates a new proxy that will expose the given client
-// via the specified transport (either "streamablehttp" or "sse")
+// via the specified transport (streamablehttp)
 func NewSingleProxy(transport string, client *Client, path string, authMiddleware *auth.Auth) *SingleProxy {
 	return &SingleProxy{
 		transport: transport,
@@ -46,20 +46,21 @@ func (p *SingleProxy) Init(ctx context.Context) error {
 	p.ctx = ctx
 
 	// Create an MCP server that will proxy requests
-	p.mcpServer = mgserver.NewMCPServer(
-		"mcp-auth-proxy",
-		"1.0.0",
-		mgserver.WithInstructions("MCP Authentication Proxy"),
-	)
+	p.mcpServer = mcp.NewServer(&mcp.Implementation{
+		Name:    "mcp-auth-proxy",
+		Version: "1.0.0",
+	}, &mcp.ServerOptions{
+		Instructions: "MCP Authentication Proxy",
+	})
 
 	// Create the appropriate transport server
 	switch p.transport {
 	case "streamablehttp":
-		p.httpHandler = mgserver.NewStreamableHTTPServer(p.mcpServer)
-	case "sse":
-		p.httpHandler = mgserver.NewSSEServer(p.mcpServer, mgserver.WithStaticBasePath(p.path))
+		p.httpHandler = mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+			return p.mcpServer
+		}, nil)
 	default:
-		return fmt.Errorf("unsupported transport: %s (must be 'streamablehttp' or 'sse')", p.transport)
+		return fmt.Errorf("unsupported transport: %s (must be 'streamablehttp')", p.transport)
 	}
 
 	// Register this proxy as a listener for connection events
@@ -77,7 +78,7 @@ func (p *SingleProxy) Init(ctx context.Context) error {
 
 // OnConnected implements ConnectionListener interface
 // Called when the client connects or reconnects to the upstream MCP server
-func (p *SingleProxy) OnConnected(initResult *mgmcp.InitializeResult) error {
+func (p *SingleProxy) OnConnected(initResult *mcp.InitializeResult) error {
 	logrus.Info("SingleProxy.OnConnected called - updating handlers")
 	// Clear all existing handlers before registering new ones
 	p.clearHandlers()
@@ -95,28 +96,27 @@ func (p *SingleProxy) OnConnected(initResult *mgmcp.InitializeResult) error {
 func (p *SingleProxy) clearHandlers() {
 	// Delete all previously registered handlers
 	if len(p.registeredTools) > 0 {
-		p.mcpServer.DeleteTools(p.registeredTools...)
+		p.mcpServer.RemoveTools(p.registeredTools...)
 		p.registeredTools = nil
 	}
 	if len(p.registeredResources) > 0 {
-		p.mcpServer.DeleteResources(p.registeredResources...)
+		p.mcpServer.RemoveResources(p.registeredResources...)
 		p.registeredResources = nil
 	}
 	if len(p.registeredPrompts) > 0 {
-		p.mcpServer.DeletePrompts(p.registeredPrompts...)
+		p.mcpServer.RemovePrompts(p.registeredPrompts...)
 		p.registeredPrompts = nil
 	}
 }
 
 // setupProxyHandlers configures the MCP server to forward all requests to the upstream client
-func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mgmcp.InitializeResult) error {
+func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mcp.InitializeResult) error {
 	// Configure server capabilities to match upstream capabilities
 	if initResult.Capabilities.Tools != nil {
 		// Fetch all tools from upstream
-		var allTools []mgmcp.Tool
-		toolsRequest := mgmcp.ListToolsRequest{}
+		var allTools []*mcp.Tool
 		for {
-			toolsResult, err := p.client.ListTools(ctx, toolsRequest)
+			toolsResult, err := p.client.ListTools(ctx, &mcp.ListToolsParams{}) //TODO: next cursor should be set
 			if err != nil {
 				return fmt.Errorf("failed to list tools from upstream: %w", err)
 			}
@@ -127,15 +127,17 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mgmcp.
 			if toolsResult.NextCursor == "" {
 				break
 			}
-			toolsRequest.Params.Cursor = toolsResult.NextCursor
 		}
 
 		// Register each tool with a proxy handler
 		for _, tool := range allTools {
 			toolCopy := tool // Capture for closure
-			p.mcpServer.AddTool(toolCopy, func(ctx context.Context, request mgmcp.CallToolRequest) (*mgmcp.CallToolResult, error) {
+			p.mcpServer.AddTool(toolCopy, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				// Forward the tool call to the upstream client
-				return p.client.CallTool(ctx, request)
+				return p.client.CallTool(ctx, &mcp.CallToolParams{
+					Name:      req.Params.Name,
+					Arguments: req.Params.Arguments,
+				})
 			})
 			p.registeredTools = append(p.registeredTools, tool.Name)
 		}
@@ -143,10 +145,9 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mgmcp.
 
 	if initResult.Capabilities.Resources != nil {
 		// Fetch all resources from upstream
-		var allResources []mgmcp.Resource
-		resourcesRequest := mgmcp.ListResourcesRequest{}
+		var allResources []*mcp.Resource
 		for {
-			resourcesResult, err := p.client.ListResources(ctx, resourcesRequest)
+			resourcesResult, err := p.client.ListResources(ctx, &mcp.ListResourcesParams{})
 			if err != nil {
 				return fmt.Errorf("failed to list resources from upstream: %w", err)
 			}
@@ -157,33 +158,28 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mgmcp.
 			if resourcesResult.NextCursor == "" {
 				break
 			}
-			resourcesRequest.Params.Cursor = resourcesResult.NextCursor
 		}
 
 		// Register each resource with a proxy handler
 		for _, resource := range allResources {
 			resourceCopy := resource // Capture for closure
-			p.mcpServer.AddResource(resourceCopy, func(ctx context.Context, request mgmcp.ReadResourceRequest) ([]mgmcp.ResourceContents, error) {
+			p.mcpServer.AddResource(resourceCopy, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 				// Forward the resource read to the upstream client
-				result, err := p.client.ReadResource(ctx, request)
-				if err != nil {
-					return nil, err
-				}
-				return result.Contents, nil
+				return p.client.ReadResource(ctx, &mcp.ReadResourceParams{URI: req.Params.URI})
 			})
 			p.registeredResources = append(p.registeredResources, resource.URI)
 		}
 
+		//TODO: check below if new pkg supports resource templates
 		// Note: Resource templates are not registered because they cannot be deleted,
 		// which would cause issues on reconnection. Clients should use regular resources instead.
 	}
 
 	if initResult.Capabilities.Prompts != nil {
 		// Fetch all prompts from upstream
-		var allPrompts []mgmcp.Prompt
-		promptsRequest := mgmcp.ListPromptsRequest{}
+		var allPrompts []*mcp.Prompt
 		for {
-			promptsResult, err := p.client.ListPrompts(ctx, promptsRequest)
+			promptsResult, err := p.client.ListPrompts(ctx, &mcp.ListPromptsParams{})
 			if err != nil {
 				return fmt.Errorf("failed to list prompts from upstream: %w", err)
 			}
@@ -194,15 +190,17 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mgmcp.
 			if promptsResult.NextCursor == "" {
 				break
 			}
-			promptsRequest.Params.Cursor = promptsResult.NextCursor
 		}
 
 		// Register each prompt with a proxy handler
 		for _, prompt := range allPrompts {
 			promptCopy := prompt // Capture for closure
-			p.mcpServer.AddPrompt(promptCopy, func(ctx context.Context, request mgmcp.GetPromptRequest) (*mgmcp.GetPromptResult, error) {
+			p.mcpServer.AddPrompt(promptCopy, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 				// Forward the prompt request to the upstream client
-				return p.client.GetPrompt(ctx, request)
+				return p.client.GetPrompt(ctx, &mcp.GetPromptParams{
+					Name:      req.Params.Name,
+					Arguments: req.Params.Arguments,
+				})
 			})
 			p.registeredPrompts = append(p.registeredPrompts, prompt.Name)
 		}
@@ -228,7 +226,7 @@ type multiProxyClientListener struct {
 	prefix     string
 }
 
-func (l *multiProxyClientListener) OnConnected(initResult *mgmcp.InitializeResult) error {
+func (l *multiProxyClientListener) OnConnected(initResult *mcp.InitializeResult) error {
 	return l.proxy.onClientConnected(l.clientName, l.prefix, initResult)
 }
 
@@ -238,7 +236,7 @@ type MultiProxy struct {
 	path             string
 	clients          map[string]*Client
 	mcps             []MultiMCPConfig
-	mcpServer        *mgserver.MCPServer
+	mcpServer        *mcp.Server
 	httpHandler      http.Handler
 	auth             *auth.Auth
 	ctx              context.Context
@@ -272,20 +270,21 @@ func NewMultiProxy(
 func (p *MultiProxy) Init(ctx context.Context) error {
 	p.ctx = ctx
 
-	p.mcpServer = mgserver.NewMCPServer(
-		"mcp-auth-multi-proxy",
-		"1.0.0",
-		mgserver.WithInstructions("MCP Authentication Multi-Proxy"),
-	)
+	p.mcpServer = mcp.NewServer(&mcp.Implementation{
+		Name:    "mcp-auth-multi-proxy",
+		Version: "1.0.0",
+	}, &mcp.ServerOptions{
+		Instructions: "MCP Authentication Multi-Proxy",
+	})
 
 	// Create the appropriate transport server
 	switch p.transport {
 	case "streamablehttp":
-		p.httpHandler = mgserver.NewStreamableHTTPServer(p.mcpServer)
-	case "sse":
-		p.httpHandler = mgserver.NewSSEServer(p.mcpServer, mgserver.WithStaticBasePath(p.path))
+		p.httpHandler = mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+			return p.mcpServer
+		}, nil)
 	default:
-		return fmt.Errorf("unsupported transport: %s (must be 'streamablehttp' or 'sse')", p.transport)
+		return fmt.Errorf("unsupported transport: %s (must be 'streamablehttp')", p.transport)
 	}
 
 	// Register this proxy as a listener for each client and set up initial handlers
@@ -314,7 +313,7 @@ func (p *MultiProxy) Init(ctx context.Context) error {
 }
 
 // onClientConnected is called when a client connects or reconnects
-func (p *MultiProxy) onClientConnected(clientName, prefix string, initResult *mgmcp.InitializeResult) error {
+func (p *MultiProxy) onClientConnected(clientName, prefix string, initResult *mcp.InitializeResult) error {
 	// Clear handlers for this specific client
 	p.clearClientHandlers(clientName)
 
@@ -335,30 +334,29 @@ func (p *MultiProxy) clearClientHandlers(clientName string) {
 
 	// Delete tools for this client
 	if toolNames, ok := p.registeredTools[clientName]; ok && len(toolNames) > 0 {
-		p.mcpServer.DeleteTools(toolNames...)
+		p.mcpServer.RemoveTools(toolNames...)
 		delete(p.registeredTools, clientName)
 	}
 
 	// Delete resources for this client
 	if resURIs, ok := p.registeredRes[clientName]; ok && len(resURIs) > 0 {
-		p.mcpServer.DeleteResources(resURIs...)
+		p.mcpServer.RemoveResources(resURIs...)
 		delete(p.registeredRes, clientName)
 	}
 
 	// Delete prompts for this client
 	if promptNames, ok := p.registeredPropts[clientName]; ok && len(promptNames) > 0 {
-		p.mcpServer.DeletePrompts(promptNames...)
+		p.mcpServer.RemovePrompts(promptNames...)
 		delete(p.registeredPropts, clientName)
 	}
 }
 
 // setupProxyHandlers configures the MCP server to forward all requests to the upstream client
-func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, initResult *mgmcp.InitializeResult, clientName, prefix string) error {
+func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, initResult *mcp.InitializeResult, clientName, prefix string) error {
 	if initResult.Capabilities.Tools != nil {
-		var allTools []mgmcp.Tool
-		toolsRequest := mgmcp.ListToolsRequest{}
+		var allTools []*mcp.Tool
 		for {
-			toolsResult, err := client.ListTools(ctx, toolsRequest)
+			toolsResult, err := client.ListTools(ctx, &mcp.ListToolsParams{})
 			if err != nil {
 				return fmt.Errorf("failed to list tools from upstream: %w", err)
 			}
@@ -369,16 +367,18 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 			if toolsResult.NextCursor == "" {
 				break
 			}
-			toolsRequest.Params.Cursor = toolsResult.NextCursor
 		}
 
 		var toolNames []string
 		for _, tool := range allTools {
-			toolCopy := tool
+			toolCopy := *tool // Dereference and copy
 			toolCopy.Name = prefix + "_" + toolCopy.Name
-			p.mcpServer.AddTool(toolCopy, func(ctx context.Context, request mgmcp.CallToolRequest) (*mgmcp.CallToolResult, error) {
-				request.Params.Name = strings.TrimPrefix(request.Params.Name, prefix+"_")
-				return client.CallTool(ctx, request)
+			p.mcpServer.AddTool(&toolCopy, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				originalName := strings.TrimPrefix(req.Params.Name, prefix+"_")
+				return client.CallTool(ctx, &mcp.CallToolParams{
+					Name:      originalName,
+					Arguments: req.Params.Arguments,
+				})
 			})
 			toolNames = append(toolNames, toolCopy.Name)
 		}
@@ -389,10 +389,9 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 	}
 
 	if initResult.Capabilities.Resources != nil {
-		var allResources []mgmcp.Resource
-		resourcesRequest := mgmcp.ListResourcesRequest{}
+		var allResources []*mcp.Resource
 		for {
-			resourcesResult, err := client.ListResources(ctx, resourcesRequest)
+			resourcesResult, err := client.ListResources(ctx, &mcp.ListResourcesParams{})
 			if err != nil {
 				return fmt.Errorf("failed to list resources from upstream: %w", err)
 			}
@@ -403,20 +402,15 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 			if resourcesResult.NextCursor == "" {
 				break
 			}
-			resourcesRequest.Params.Cursor = resourcesResult.NextCursor
 		}
 
 		var resourceURIs []string
 		for _, resource := range allResources {
-			resourceCopy := resource
+			resourceCopy := *resource // Dereference and copy
 			resourceCopy.Name = prefix + "_" + resourceCopy.Name
-			p.mcpServer.AddResource(resourceCopy, func(ctx context.Context, request mgmcp.ReadResourceRequest) ([]mgmcp.ResourceContents, error) {
-				request.Params.URI = strings.TrimPrefix(request.Params.URI, prefix+"_")
-				result, err := client.ReadResource(ctx, request)
-				if err != nil {
-					return nil, err
-				}
-				return result.Contents, nil
+			p.mcpServer.AddResource(&resourceCopy, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+				originalURI := strings.TrimPrefix(req.Params.URI, prefix+"_")
+				return client.ReadResource(ctx, &mcp.ReadResourceParams{URI: originalURI})
 			})
 			resourceURIs = append(resourceURIs, resourceCopy.URI)
 		}
@@ -430,10 +424,9 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 	}
 
 	if initResult.Capabilities.Prompts != nil {
-		var allPrompts []mgmcp.Prompt
-		promptsRequest := mgmcp.ListPromptsRequest{}
+		var allPrompts []*mcp.Prompt
 		for {
-			promptsResult, err := client.ListPrompts(ctx, promptsRequest)
+			promptsResult, err := client.ListPrompts(ctx, &mcp.ListPromptsParams{})
 			if err != nil {
 				return fmt.Errorf("failed to list prompts from upstream: %w", err)
 			}
@@ -444,16 +437,18 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 			if promptsResult.NextCursor == "" {
 				break
 			}
-			promptsRequest.Params.Cursor = promptsResult.NextCursor
 		}
 
 		var promptNames []string
 		for _, prompt := range allPrompts {
-			promptCopy := prompt
+			promptCopy := *prompt // Dereference and copy
 			promptCopy.Name = prefix + "_" + promptCopy.Name
-			p.mcpServer.AddPrompt(promptCopy, func(ctx context.Context, request mgmcp.GetPromptRequest) (*mgmcp.GetPromptResult, error) {
-				request.Params.Name = strings.TrimPrefix(request.Params.Name, prefix+"_")
-				return client.GetPrompt(ctx, request)
+			p.mcpServer.AddPrompt(&promptCopy, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+				originalName := strings.TrimPrefix(req.Params.Name, prefix+"_")
+				return client.GetPrompt(ctx, &mcp.GetPromptParams{
+					Name:      originalName,
+					Arguments: req.Params.Arguments,
+				})
 			})
 			promptNames = append(promptNames, promptCopy.Name)
 		}

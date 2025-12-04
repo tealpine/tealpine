@@ -24,7 +24,7 @@ func TestValidateMCPConfig_InvalidTransport(t *testing.T) {
 	if !strings.Contains(err.Error(), "invalid transport 'invalid'") {
 		t.Errorf("unexpected error message: %v", err)
 	}
-	if !strings.Contains(err.Error(), "must be one of: stdio, sse, streamablehttp") {
+	if !strings.Contains(err.Error(), "must be one of: stdio, streamablehttp") {
 		t.Errorf("error should list valid transports: %v", err)
 	}
 }
@@ -94,68 +94,6 @@ func TestValidateMCPConfig_StdioValid(t *testing.T) {
 	}
 }
 
-func TestValidateMCPConfig_SSEMissingURL(t *testing.T) {
-	config := &Config{
-		MCP: map[string]MCPConfig{
-			"test": {
-				Name:      "test",
-				Transport: "sse",
-				// URL is missing
-			},
-		},
-	}
-
-	err := config.Validate()
-	if err == nil {
-		t.Fatal("expected error for sse without url, got nil")
-	}
-	if !strings.Contains(err.Error(), "'url' is required when transport is 'sse'") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-func TestValidateMCPConfig_SSEWithCmd(t *testing.T) {
-	config := &Config{
-		MCP: map[string]MCPConfig{
-			"test": {
-				Name:      "test",
-				Transport: "sse",
-				URL:       "http://localhost:8080",
-				Cmd:       "go",
-			},
-		},
-	}
-
-	err := config.Validate()
-	if err == nil {
-		t.Fatal("expected error for sse with cmd, got nil")
-	}
-	if !strings.Contains(err.Error(), "'cmd' cannot be set when transport is 'sse'") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-func TestValidateMCPConfig_SSEWithArgs(t *testing.T) {
-	config := &Config{
-		MCP: map[string]MCPConfig{
-			"test": {
-				Name:      "test",
-				Transport: "sse",
-				URL:       "http://localhost:8080",
-				CmdArgs:   []string{"arg1"},
-			},
-		},
-	}
-
-	err := config.Validate()
-	if err == nil {
-		t.Fatal("expected error for sse with args, got nil")
-	}
-	if !strings.Contains(err.Error(), "'args' cannot be set when transport is 'sse'") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
 func TestValidateMCPConfig_StreamableHTTPMissingURL(t *testing.T) {
 	config := &Config{
 		MCP: map[string]MCPConfig{
@@ -169,7 +107,7 @@ func TestValidateMCPConfig_StreamableHTTPMissingURL(t *testing.T) {
 
 	err := config.Validate()
 	if err == nil {
-		t.Fatal("expected error for streamablehttp without url, got nil")
+		t.Fatal("expected error for sse without url, got nil")
 	}
 	if !strings.Contains(err.Error(), "'url' is required when transport is 'streamablehttp'") {
 		t.Errorf("unexpected error message: %v", err)
@@ -190,19 +128,41 @@ func TestValidateMCPConfig_StreamableHTTPWithCmd(t *testing.T) {
 
 	err := config.Validate()
 	if err == nil {
-		t.Fatal("expected error for streamablehttp with cmd, got nil")
+		t.Fatal("expected error for sse with cmd, got nil")
 	}
 	if !strings.Contains(err.Error(), "'cmd' cannot be set when transport is 'streamablehttp'") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
+func TestValidateMCPConfig_StreamableHTTPWithArgs(t *testing.T) {
+	config := &Config{
+		MCP: map[string]MCPConfig{
+			"test": {
+				Name:      "test",
+				Transport: "streamablehttp",
+				URL:       "http://localhost:8080",
+				CmdArgs:   []string{"arg1"},
+			},
+		},
+	}
+
+	err := config.Validate()
+	if err == nil {
+		t.Fatal("expected error for sse with args, got nil")
+	}
+	if !strings.Contains(err.Error(), "'args' cannot be set when transport is 'streamablehttp'") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+
 func TestValidateProxyConfig_BothMCPAndMCPsEmpty(t *testing.T) {
 	config := &Config{
 		MCP: map[string]MCPConfig{
 			"test": {
 				Name:      "test",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				URL:       "http://localhost:8080",
 			},
 		},
@@ -228,12 +188,12 @@ func TestValidateProxyConfig_BothMCPAndMCPsSet(t *testing.T) {
 		MCP: map[string]MCPConfig{
 			"test1": {
 				Name:      "test1",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				URL:       "http://localhost:8080",
 			},
 			"test2": {
 				Name:      "test2",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				URL:       "http://localhost:8081",
 			},
 		},
@@ -262,7 +222,7 @@ func TestValidateProxyConfig_MCPNotDefined(t *testing.T) {
 		MCP: map[string]MCPConfig{
 			"test": {
 				Name:      "test",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				URL:       "http://localhost:8080",
 			},
 		},
@@ -288,7 +248,7 @@ func TestValidateProxyConfig_MCPsNotDefined(t *testing.T) {
 		MCP: map[string]MCPConfig{
 			"test1": {
 				Name:      "test1",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				URL:       "http://localhost:8080",
 			},
 		},
@@ -317,7 +277,7 @@ func TestValidateProxyConfig_ValidSingleMCP(t *testing.T) {
 		MCP: map[string]MCPConfig{
 			"test": {
 				Name:      "test",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				URL:       "http://localhost:8080",
 			},
 		},
@@ -340,7 +300,7 @@ func TestValidateProxyConfig_ValidMultipleMCPs(t *testing.T) {
 		MCP: map[string]MCPConfig{
 			"test1": {
 				Name:      "test1",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				URL:       "http://localhost:8080",
 			},
 			"test2": {
@@ -371,7 +331,7 @@ func TestValidateUserConfig_DuplicateGroups(t *testing.T) {
 		MCP: map[string]MCPConfig{
 			"test": {
 				Name:      "test",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				URL:       "http://localhost:8080",
 			},
 		},
@@ -403,7 +363,7 @@ func TestValidateUserConfig_UniqueGroups(t *testing.T) {
 		MCP: map[string]MCPConfig{
 			"test": {
 				Name:      "test",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				URL:       "http://localhost:8080",
 			},
 		},
@@ -435,8 +395,8 @@ func TestValidateConfig_CompleteValid(t *testing.T) {
 		MCP: map[string]MCPConfig{
 			"calculator": {
 				Name:      "calculator",
-				Transport: "sse",
-				URL:       "http://localhost:7751/sse",
+				Transport: "streamablehttp",
+				URL:       "http://localhost:7751/mcp",
 			},
 			"temperature": {
 				Name:      "temperature",
@@ -523,8 +483,8 @@ func TestValidateMCPConfig_AllTransportTypes(t *testing.T) {
 		},
 		{
 			name:      "valid sse",
-			transport: "sse",
-			url:       "http://localhost:8080/sse",
+			transport: "streamablehttp",
+			url:       "http://localhost:8080/mcp",
 			wantErr:   false,
 		},
 		{
@@ -597,7 +557,7 @@ func TestValidateMCPConfig_WithBearerToken(t *testing.T) {
 		MCP: map[string]MCPConfig{
 			"test": {
 				Name:      "test",
-				Transport: "sse",
+				Transport: "streamablehttp",
 				URL:       "http://localhost:8080",
 				Bearer:    "my-secret-token",
 			},

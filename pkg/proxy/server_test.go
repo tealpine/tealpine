@@ -31,8 +31,8 @@ func TestServerWithInvalidProxyConfig(t *testing.T) {
 		MCP: map[string]proxy.MCPConfig{
 			"calculator": {
 				Name:      "calculator",
-				Transport: "sse",
-				URL:       calcUpstreamServer.URL + "/sse",
+				Transport: "streamablehttp",
+				URL:       calcUpstreamServer.URL + "/mcp",
 			},
 		},
 		Proxy: map[string]proxy.ProxyConfig{
@@ -73,8 +73,8 @@ func TestServerWithEmptyProxyConfig(t *testing.T) {
 		MCP: map[string]proxy.MCPConfig{
 			"calculator": {
 				Name:      "calculator",
-				Transport: "sse",
-				URL:       calcUpstreamServer.URL + "/sse",
+				Transport: "streamablehttp",
+				URL:       calcUpstreamServer.URL + "/mcp",
 			},
 		},
 		Proxy: map[string]proxy.ProxyConfig{

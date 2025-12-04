@@ -47,6 +47,25 @@ func NewAuth(users map[string]*UserInfo, authRules []AuthRule) (*Auth, error) {
 	}
 
 	// Create Casbin model
+	/*
+		https://casbin.org/editor/
+
+		[request_definition]
+		r = sub, method, obj
+
+		[policy_definition]
+		p = sub, method, obj
+
+		[role_definition]
+		g = _, _
+
+		[policy_effect]
+		e = some(where (p.eft == allow))
+
+		[matchers]
+		m = g(r.sub, p.sub) && r.method == p.method && globMatch(r.obj, p.obj)
+	*/
+
 	m := model.NewModel()
 	m.AddDef("r", "r", "sub, method, obj")
 	m.AddDef("p", "p", "sub, method, obj")
@@ -117,6 +136,11 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
+		username, ok := a.authenticateUser(w, r)
+		if !ok {
+			return
+		}
+
 		// Read the request body
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -125,6 +149,13 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 		}
 		defer r.Body.Close()
 
+		// If the body is empty, it might be a ping/health check - pass it through
+		if len(body) == 0 {
+			r.Body = io.NopCloser(bytes.NewBuffer(body))
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Unmarshal the MCP request to extract method and name
 		var mcpReq MCPRequest
 		if err := json.Unmarshal(body, &mcpReq); err != nil {
@@ -132,35 +163,7 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Extract bearer token from Authorization header
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "missing authorization header", http.StatusUnauthorized)
-			return
-		}
-
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token == authHeader {
-			http.Error(w, "invalid authorization header format", http.StatusUnauthorized)
-			return
-		}
-
-		// Find user by token
-		username, ok := a.userTokens[token]
-		if !ok {
-			http.Error(w, "invalid token", http.StatusUnauthorized)
-			return
-		}
-
-		// Check authorization using Casbin (with user: prefix to avoid conflicts with groups)
-		allowed, err := a.enforcer.Enforce("user:"+username, mcpReq.Method, mcpReq.Params.Name)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("authorization check failed: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		if !allowed {
-			http.Error(w, "access denied", http.StatusForbidden)
+		if ok := a.authorize(mcpReq, username, w); !ok {
 			return
 		}
 
@@ -169,4 +172,48 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (a *Auth) authenticateUser(w http.ResponseWriter, r *http.Request) (string, bool) {
+	// Extract bearer token from the Authorization header
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, "missing authorization header", http.StatusUnauthorized)
+		return "", false
+	}
+
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == authHeader {
+		http.Error(w, "invalid authorization header format", http.StatusUnauthorized)
+		return "", false
+	}
+
+	// Find user by token
+	username, ok := a.userTokens[token]
+	if !ok {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return "", false
+	}
+	return username, true
+}
+
+func (a *Auth) authorize(mcpReq MCPRequest, username string, w http.ResponseWriter) bool {
+	allowed := false
+	switch mcpReq.Method {
+	case "initialize", "notifications/initialized":
+		allowed = true
+	default:
+		var err error
+		allowed, err = a.enforcer.Enforce("user:"+username, mcpReq.Method, mcpReq.Params.Name)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("authorization check failed: %v", err), http.StatusInternalServerError)
+			return false
+		}
+	}
+
+	if !allowed {
+		http.Error(w, "access denied", http.StatusForbidden)
+		return false
+	}
+	return true
 }

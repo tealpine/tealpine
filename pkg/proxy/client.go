@@ -4,25 +4,38 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	mgclient "github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
-	mgmcp "github.com/mark3labs/mcp-go/mcp"
-	"github.com/sirupsen/logrus"
+	"net/http"
+	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/sirupsen/logrus"
 )
 
 var ErrDisconnected = errors.New("client is disconnected")
 
+// bearerAuthTransport wraps an http.RoundTripper to add Bearer token authorization
+type bearerAuthTransport struct {
+	wrapped http.RoundTripper
+	bearer  string
+}
+
+func (t *bearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("Authorization", "Bearer "+t.bearer)
+	return t.wrapped.RoundTrip(req)
+}
+
 // ConnectionListener is notified when the client connects or reconnects
 type ConnectionListener interface {
-	OnConnected(initResult *mgmcp.InitializeResult) error
+	OnConnected(initResult *mcp.InitializeResult) error
 }
 
 type Client struct {
 	cfg        MCPConfig
-	client     mgclient.MCPClient
-	initResult *mgmcp.InitializeResult
+	client     *mcp.Client
+	session    *mcp.ClientSession
+	initResult *mcp.InitializeResult
 
 	mutex       sync.Mutex
 	isConnected bool
@@ -62,7 +75,7 @@ func (cs *Client) RegisterListener(listener ConnectionListener) {
 	cs.listeners = append(cs.listeners, listener) //TODO: how to unregister listener?
 }
 
-func (cs *Client) GetInitResult() *mgmcp.InitializeResult {
+func (cs *Client) GetInitResult() *mcp.InitializeResult {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
 	return cs.initResult
@@ -82,74 +95,50 @@ func (cs *Client) Start(ctx context.Context) {
 }
 
 func (cs *Client) init(ctx context.Context) error {
-
 	cs.log.Infof("creating new client")
+
+	// Create client if not exists
+	if cs.client == nil {
+		cs.client = mcp.NewClient(&mcp.Implementation{
+			Name:    "mcp-auth-proxy-upstream-client",
+			Version: "1.0.0",
+		}, nil)
+	}
+
+	// Create transport based on config
+	var transport mcp.Transport
 	var err error
-	var client mgclient.MCPClient
 
 	switch cs.cfg.Transport {
-	case "sse":
-		var options []transport.ClientOption
-		if cs.cfg.Bearer != "" {
-			headers := map[string]string{
-				"Authorization": "Bearer " + cs.cfg.Bearer,
-			}
-			options = append(options, transport.WithHeaders(headers))
-		}
-		client, err = mgclient.NewSSEMCPClient(cs.cfg.URL, options...)
 	case "streamablehttp":
-		var options []transport.StreamableHTTPCOption
+		streamableTransport := &mcp.StreamableClientTransport{
+			Endpoint: cs.cfg.URL,
+		}
 		if cs.cfg.Bearer != "" {
-			headers := map[string]string{
-				"Authorization": "Bearer " + cs.cfg.Bearer,
+			streamableTransport.HTTPClient = &http.Client{
+				Transport: &bearerAuthTransport{
+					wrapped: http.DefaultTransport,
+					bearer:  cs.cfg.Bearer,
+				},
 			}
-			options = append(options, transport.WithHTTPHeaders(headers))
 		}
-		client, err = mgclient.NewStreamableHttpClient(cs.cfg.URL, options...)
+		transport = streamableTransport
 	case "stdio":
-		client, err = mgclient.NewStdioMCPClient(cs.cfg.Cmd, []string{}, cs.cfg.CmdArgs...)
+		transport = &mcp.CommandTransport{
+			Command: exec.Command(cs.cfg.Cmd, cs.cfg.CmdArgs...),
+		}
+	default:
+		return fmt.Errorf("unsupported transport: %s (supported: stdio, streamablehttp)", cs.cfg.Transport)
 	}
 
+	cs.log.Infof("connecting to server")
+	session, err := cs.client.Connect(ctx, transport, nil)
 	if err != nil {
-		return err
-	}
-	if client == nil {
-		return fmt.Errorf("unexpected nil client")
+		return fmt.Errorf("connection failed: %w", err)
 	}
 
-	if cs.cfg.Transport != "stdio" {
-		// we need to do type assertion to call Start method
-		type starter interface {
-			Start(context.Context) error
-		}
-		if s, ok := client.(starter); ok {
-			err := s.Start(ctx)
-			if err != nil {
-				if closeErr := client.Close(); closeErr != nil {
-					cs.log.WithError(closeErr).Error("Failed to close client after start failure")
-				}
-				return err
-			}
-		}
-	}
-
-	cs.log.Infof("initializing client")
-	result, err := client.Initialize(ctx, mgmcp.InitializeRequest{
-		Params: mgmcp.InitializeParams{
-			ProtocolVersion: mgmcp.LATEST_PROTOCOL_VERSION,
-			ClientInfo: mgmcp.Implementation{
-				Name:    "mcp-auth-proxy-upstream-client",
-				Version: "1.0.0",
-			},
-		},
-	})
-
-	if err != nil {
-		if closeErr := client.Close(); closeErr != nil {
-			cs.log.WithError(closeErr).Error("Failed to close client after initialization failure")
-		}
-		return fmt.Errorf("initialization failed: %w", err)
-	}
+	// Get initialization result
+	result := session.InitializeResult()
 
 	cs.log.Infof("Connected to server: %s v%s",
 		result.ServerInfo.Name,
@@ -159,9 +148,9 @@ func (cs *Client) init(ctx context.Context) error {
 
 	cs.mutex.Lock()
 	cs.initResult = result
+	cs.session = session
 	cs.isConnected = true
 	cs.isClosed = false
-	cs.client = client
 	listeners := make([]ConnectionListener, len(cs.listeners))
 	copy(listeners, cs.listeners)
 	cs.mutex.Unlock()
@@ -174,51 +163,50 @@ func (cs *Client) init(ctx context.Context) error {
 	}
 
 	return nil
-
 }
 
 func (cs *Client) CallTool(
 	ctx context.Context,
-	request mgmcp.CallToolRequest,
-) (*mgmcp.CallToolResult, error) {
-	return execute(cs, func(client mgclient.MCPClient) (*mgmcp.CallToolResult, error) {
-		return client.CallTool(ctx, request)
+	params *mcp.CallToolParams,
+) (*mcp.CallToolResult, error) {
+	return execute(cs, func(session *mcp.ClientSession) (*mcp.CallToolResult, error) {
+		return session.CallTool(ctx, params)
 	})
 }
 
-func (cs *Client) ListTools(ctx context.Context, request mgmcp.ListToolsRequest) (*mgmcp.ListToolsResult, error) {
-	return execute(cs, func(client mgclient.MCPClient) (*mgmcp.ListToolsResult, error) {
-		return cs.client.ListTools(ctx, request)
+func (cs *Client) ListTools(ctx context.Context, params *mcp.ListToolsParams) (*mcp.ListToolsResult, error) {
+	return execute(cs, func(session *mcp.ClientSession) (*mcp.ListToolsResult, error) {
+		return session.ListTools(ctx, params)
 	})
 }
 
-func (cs *Client) ListResources(ctx context.Context, request mgmcp.ListResourcesRequest) (*mgmcp.ListResourcesResult, error) {
-	return execute(cs, func(client mgclient.MCPClient) (*mgmcp.ListResourcesResult, error) {
-		return client.ListResources(ctx, request)
+func (cs *Client) ListResources(ctx context.Context, params *mcp.ListResourcesParams) (*mcp.ListResourcesResult, error) {
+	return execute(cs, func(session *mcp.ClientSession) (*mcp.ListResourcesResult, error) {
+		return session.ListResources(ctx, params)
 	})
 }
 
-func (cs *Client) ReadResource(ctx context.Context, request mgmcp.ReadResourceRequest) (*mgmcp.ReadResourceResult, error) {
-	return execute(cs, func(client mgclient.MCPClient) (*mgmcp.ReadResourceResult, error) {
-		return client.ReadResource(ctx, request)
+func (cs *Client) ReadResource(ctx context.Context, params *mcp.ReadResourceParams) (*mcp.ReadResourceResult, error) {
+	return execute(cs, func(session *mcp.ClientSession) (*mcp.ReadResourceResult, error) {
+		return session.ReadResource(ctx, params)
 	})
 }
 
-func (cs *Client) ListResourceTemplates(ctx context.Context, request mgmcp.ListResourceTemplatesRequest) (*mgmcp.ListResourceTemplatesResult, error) {
-	return execute(cs, func(client mgclient.MCPClient) (*mgmcp.ListResourceTemplatesResult, error) {
-		return client.ListResourceTemplates(ctx, request)
+func (cs *Client) ListResourceTemplates(ctx context.Context, params *mcp.ListResourceTemplatesParams) (*mcp.ListResourceTemplatesResult, error) {
+	return execute(cs, func(session *mcp.ClientSession) (*mcp.ListResourceTemplatesResult, error) {
+		return session.ListResourceTemplates(ctx, params)
 	})
 }
 
-func (cs *Client) GetPrompt(ctx context.Context, request mgmcp.GetPromptRequest) (*mgmcp.GetPromptResult, error) {
-	return execute(cs, func(client mgclient.MCPClient) (*mgmcp.GetPromptResult, error) {
-		return client.GetPrompt(ctx, request)
+func (cs *Client) GetPrompt(ctx context.Context, params *mcp.GetPromptParams) (*mcp.GetPromptResult, error) {
+	return execute(cs, func(session *mcp.ClientSession) (*mcp.GetPromptResult, error) {
+		return session.GetPrompt(ctx, params)
 	})
 }
 
-func (cs *Client) ListPrompts(ctx context.Context, request mgmcp.ListPromptsRequest) (*mgmcp.ListPromptsResult, error) {
-	return execute(cs, func(client mgclient.MCPClient) (*mgmcp.ListPromptsResult, error) {
-		return client.ListPrompts(ctx, request)
+func (cs *Client) ListPrompts(ctx context.Context, params *mcp.ListPromptsParams) (*mcp.ListPromptsResult, error) {
+	return execute(cs, func(session *mcp.ClientSession) (*mcp.ListPromptsResult, error) {
+		return session.ListPrompts(ctx, params)
 	})
 }
 
@@ -233,8 +221,8 @@ func (cs *Client) Close() error {
 	cs.isClosed = true
 	cs.cancel()
 
-	if cs.client != nil {
-		return cs.client.Close()
+	if cs.session != nil {
+		return cs.session.Close()
 	}
 
 	return nil
@@ -250,7 +238,7 @@ func newListener() *listener {
 	}
 }
 
-func (l *listener) OnConnected(_ *mgmcp.InitializeResult) error {
+func (l *listener) OnConnected(_ *mcp.InitializeResult) error {
 	l.ch <- struct{}{}
 	return nil
 }
@@ -273,14 +261,14 @@ func (cs *Client) WaitForConnection(ctx context.Context) error {
 
 }
 
-func (cs *Client) getClient() mgclient.MCPClient {
+func (cs *Client) getSession() *mcp.ClientSession {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
 	if !cs.isConnected {
 		return nil
 	}
-	client := cs.client
-	return client
+	session := cs.session
+	return session
 }
 
 func (cs *Client) ping(ctx context.Context) {
@@ -290,16 +278,16 @@ func (cs *Client) ping(ctx context.Context) {
 
 		select {
 		case <-timer.C:
-			client := cs.getClient()
-			if client == nil {
+			session := cs.getSession()
+			if session == nil {
 				continue
 			}
 			pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := client.Ping(pingCtx)
+			err := session.Ping(pingCtx, &mcp.PingParams{})
 			cancel()
 			if err != nil {
 				logrus.Infof("Ping failed: %v", err)
-				cs.setDisconnected(client, err)
+				cs.setDisconnected(session, err)
 			}
 		case <-ctx.Done():
 			timer.Stop()
@@ -336,9 +324,9 @@ func (cs *Client) connectLoop(ctx context.Context) {
 
 func (cs *Client) keepConnect(ctx context.Context) {
 	for {
-		client := cs.getClient()
+		session := cs.getSession()
 
-		if client == nil {
+		if session == nil {
 			cs.connectLoop(ctx)
 		}
 
@@ -351,25 +339,25 @@ func (cs *Client) keepConnect(ctx context.Context) {
 	}
 }
 
-func (cs *Client) setDisconnected(client mgclient.MCPClient, err error) {
+func (cs *Client) setDisconnected(session *mcp.ClientSession, err error) {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
 
 	if !cs.isConnected {
 		return
 	}
-	if cs.client != client {
+	if cs.session != session {
 		return
 	}
 
-	// Close the old client to clean up resources
-	if cs.client != nil {
-		if closeErr := cs.client.Close(); closeErr != nil {
-			logrus.WithError(closeErr).Error("Failed to close disconnected client")
+	// Close the old session to clean up resources
+	if cs.session != nil {
+		if closeErr := cs.session.Close(); closeErr != nil {
+			logrus.WithError(closeErr).Error("Failed to close disconnected session")
 		}
 	}
 
-	cs.client = nil
+	cs.session = nil
 	cs.isConnected = false
 	cs.lastError = err
 	select {
@@ -379,10 +367,10 @@ func (cs *Client) setDisconnected(client mgclient.MCPClient, err error) {
 	}
 }
 
-func execute[T any](cs *Client, fn func(mgclient.MCPClient) (T, error)) (T, error) {
-	client := cs.getClient()
+func execute[T any](cs *Client, fn func(*mcp.ClientSession) (T, error)) (T, error) {
+	session := cs.getSession()
 
-	if client == nil {
+	if session == nil {
 		var zero T
 		return zero, ErrDisconnected
 	}
@@ -391,7 +379,7 @@ func execute[T any](cs *Client, fn func(mgclient.MCPClient) (T, error)) (T, erro
 	var err error
 
 	for i := 0; i < 3; i++ {
-		result, err = fn(client)
+		result, err = fn(session)
 		if err == nil {
 			return result, nil
 		}
@@ -405,7 +393,7 @@ func execute[T any](cs *Client, fn func(mgclient.MCPClient) (T, error)) (T, erro
 		time.Sleep(1 * time.Second)
 	}
 
-	cs.setDisconnected(client, err)
+	cs.setDisconnected(session, err)
 	var zero T
 	return zero, fmt.Errorf("request failed after multiple retries: %w", err)
 }

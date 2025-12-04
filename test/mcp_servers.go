@@ -3,14 +3,14 @@ package test
 import (
 	"context"
 	"fmt"
-	mgclient "github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
+	"os/exec"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type MCPTestServer interface {
@@ -19,6 +19,7 @@ type MCPTestServer interface {
 	GetHTTPHandler() (http.Handler, error)
 }
 
+// MCPCalculator implements a simple calculator MCP server
 type MCPCalculator struct {
 }
 
@@ -26,71 +27,76 @@ var _ MCPTestServer = (*MCPCalculator)(nil)
 
 func (m *MCPCalculator) GetHTTPHandler() (http.Handler, error) {
 	s := m.createMCPServer()
-	sseServer := server.NewSSEServer(s)
-	return sseServer, nil
+	httpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		return s
+	}, nil)
+	return httpHandler, nil
 }
 
-func (m *MCPCalculator) createMCPServer() *server.MCPServer {
+// CalculatorInput defines the input schema for the calculator tool
+type CalculatorInput struct {
+	Operation string  `json:"operation" jsonschema:"The operation to perform (add, subtract, multiply, divide)"`
+	X         float64 `json:"x" jsonschema:"First number"`
+	Y         float64 `json:"y" jsonschema:"Second number"`
+}
+
+// CalculatorOutput defines the output schema for the calculator tool
+type CalculatorOutput struct {
+	Result float64 `json:"result" jsonschema:"The calculation result"`
+}
+
+func (m *MCPCalculator) createMCPServer() *mcp.Server {
 	// Create a new MCP server
-	s := server.NewMCPServer(
-		"Calculator Demo",
-		"1.0.0",
-		server.WithToolCapabilities(false),
-		server.WithRecovery(),
-	)
+	s := mcp.NewServer(&mcp.Implementation{
+		Name:    "Calculator Demo",
+		Version: "1.0.0",
+	}, nil)
 
-	// Add a calculator tool
-	calculatorTool := mcp.NewTool("calculate",
-		mcp.WithDescription("Perform basic arithmetic operations"),
-		mcp.WithString("operation",
-			mcp.Required(),
-			mcp.Description("The operation to perform (add, subtract, multiply, divide)"),
-			mcp.Enum("add", "subtract", "multiply", "divide"),
-		),
-		mcp.WithNumber("x",
-			mcp.Required(),
-			mcp.Description("First number"),
-		),
-		mcp.WithNumber("y",
-			mcp.Required(),
-			mcp.Description("Second number"),
-		),
-	)
+	// Add the calculator tool using the typed handler
+	calculatorTool := &mcp.Tool{
+		Name:        "calculate",
+		Description: "Perform basic arithmetic operations",
+	}
 
-	// Add the calculator handler
-	s.AddTool(calculatorTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Using helper functions for type-safe argument access
-		op, err := request.RequireString("operation")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		x, err := request.RequireFloat("x")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		y, err := request.RequireFloat("y")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
+	mcp.AddTool(s, calculatorTool, func(ctx context.Context, request *mcp.CallToolRequest, input CalculatorInput) (*mcp.CallToolResult, CalculatorOutput, error) {
 		var result float64
-		switch op {
+		switch input.Operation {
 		case "add":
-			result = x + y
+			result = input.X + input.Y
 		case "subtract":
-			result = x - y
+			result = input.X - input.Y
 		case "multiply":
-			result = x * y
+			result = input.X * input.Y
 		case "divide":
-			if y == 0 {
-				return mcp.NewToolResultError("cannot divide by zero"), nil
+			if input.Y == 0 {
+				return &mcp.CallToolResult{
+					IsError: true,
+					Content: []mcp.Content{
+						&mcp.TextContent{
+							Text: "cannot divide by zero",
+						},
+					},
+				}, CalculatorOutput{}, nil
 			}
-			result = x / y
+			result = input.X / input.Y
+		default:
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{
+					&mcp.TextContent{
+						Text: fmt.Sprintf("unknown operation: %s", input.Operation),
+					},
+				},
+			}, CalculatorOutput{}, nil
 		}
 
-		return mcp.NewToolResultText(fmt.Sprintf("%.2f", result)), nil
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: fmt.Sprintf("%.2f", result),
+				},
+			},
+		}, CalculatorOutput{Result: result}, nil
 	})
 
 	return s
@@ -98,11 +104,17 @@ func (m *MCPCalculator) createMCPServer() *server.MCPServer {
 
 func (m *MCPCalculator) RunServer() error {
 	s := m.createMCPServer()
-	sseServer := server.NewSSEServer(s)
+	httpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		return s
+	}, nil)
 
-	// Start the server
-	log.Println("Starting calculator MCP SSE server on port 7751")
-	if err := sseServer.Start("localhost:7751"); err != nil {
+	// Start the HTTP server
+	log.Println("Starting calculator MCP StreamableHTTP server on http://localhost:7751/mcp")
+	server := &http.Server{
+		Addr:    "localhost:7751",
+		Handler: httpHandler,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 		return err
 	}
@@ -110,43 +122,37 @@ func (m *MCPCalculator) RunServer() error {
 }
 
 func (m *MCPCalculator) RunClient(url string) error {
-	// Create a new SSE client
+	// Create a new StreamableHTTP client
 	if url == "" {
-		url = "http://localhost:7751/sse"
+		url = "http://localhost:7751/mcp"
 	}
-	c, err := mgclient.NewSSEMCPClient(url)
-	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "calculator-client",
+		Version: "1.0.0",
+	}, nil)
+
+	transport := &mcp.StreamableClientTransport{
+		Endpoint: url,
 	}
 
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := c.Start(ctx); err != nil {
-		log.Fatalf("Failed to start transport: %v", err)
-	}
-
-	// Initialize the connection
-	initResult, err := c.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			ClientInfo: mcp.Implementation{
-				Name:    "calculator-client",
-				Version: "1.0.0",
-			},
-			Capabilities: mcp.ClientCapabilities{},
-		},
-	})
+	// Connect to the server
+	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		log.Fatalf("Failed to initialize: %v", err)
+		log.Fatalf("Failed to connect: %v", err)
 	}
+	defer session.Close()
 
+	initResult := session.InitializeResult()
 	fmt.Printf("Connected to: %s v%s\n", initResult.ServerInfo.Name, initResult.ServerInfo.Version)
 	fmt.Println()
 
 	// List available tools
-	toolsResult, err := c.ListTools(ctx, mcp.ListToolsRequest{})
+	toolsResult, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 	if err != nil {
 		log.Fatalf("Failed to list tools: %v", err)
 	}
@@ -173,14 +179,12 @@ func (m *MCPCalculator) RunClient(url string) error {
 	for _, calc := range calculations {
 		fmt.Printf("Calculating: %.2f %s %.2f\n", calc.x, calc.operation, calc.y)
 
-		result, err := c.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "calculate",
-				Arguments: map[string]interface{}{
-					"operation": calc.operation,
-					"x":         calc.x,
-					"y":         calc.y,
-				},
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "calculate",
+			Arguments: map[string]interface{}{
+				"operation": calc.operation,
+				"x":         calc.x,
+				"y":         calc.y,
 			},
 		})
 
@@ -191,53 +195,71 @@ func (m *MCPCalculator) RunClient(url string) error {
 
 		// Check if the result is an error
 		if result.IsError {
-			fmt.Printf("  Error: %s\n", result.Content[0])
+			for _, content := range result.Content {
+				if textContent, ok := content.(*mcp.TextContent); ok {
+					fmt.Printf("  Error: %s\n", textContent.Text)
+				}
+			}
 		} else {
-			fmt.Printf("  Result: %s\n", result.Content[0])
+			for _, content := range result.Content {
+				if textContent, ok := content.(*mcp.TextContent); ok {
+					fmt.Printf("  Result: %s\n", textContent.Text)
+				}
+			}
 		}
 		fmt.Println()
-	}
-
-	// Close the connection
-	if err := c.Close(); err != nil {
-		log.Printf("Error closing client: %v", err)
-		return err
 	}
 
 	fmt.Println("Client finished successfully")
 	return nil
 }
 
+// MCPHello implements a simple hello world MCP server for stdio
 type MCPHello struct{}
 
 var _ MCPTestServer = (*MCPHello)(nil)
 
 func (m *MCPHello) GetHTTPHandler() (http.Handler, error) {
-	return nil, fmt.Errorf("GetHTTPHandler not implemented for MCPHello")
+	return nil, fmt.Errorf("GetHTTPHandler not implemented for MCPHello (stdio only)")
+}
+
+// HelloInput defines the input schema
+type HelloInput struct {
+	Name string `json:"name" jsonschema:"Name of the person to greet"`
+}
+
+// HelloOutput defines the output schema
+type HelloOutput struct {
+	Greeting string `json:"greeting" jsonschema:"The greeting message"`
 }
 
 func (m *MCPHello) RunServer() error {
 	// Create a new MCP server
-	s := server.NewMCPServer(
-		"Demo 🚀",
-		"1.0.0",
-		server.WithToolCapabilities(true),
-	)
+	s := mcp.NewServer(&mcp.Implementation{
+		Name:    "Demo 🚀",
+		Version: "1.0.0",
+	}, nil)
 
 	// Add tool
-	tool := mcp.NewTool("hello_world",
-		mcp.WithDescription("Say hello to someone"),
-		mcp.WithString("name",
-			mcp.Required(),
-			mcp.Description("Name of the person to greet"),
-		),
-	)
+	tool := &mcp.Tool{
+		Name:        "hello_world",
+		Description: "Say hello to someone",
+	}
 
-	// Add tool handler
-	s.AddTool(tool, helloHandler)
+	// Add tool handler using typed handler
+	mcp.AddTool(s, tool, func(ctx context.Context, request *mcp.CallToolRequest, input HelloInput) (*mcp.CallToolResult, HelloOutput, error) {
+		greeting := fmt.Sprintf("Hello, %s!", input.Name)
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: greeting,
+				},
+			},
+		}, HelloOutput{Greeting: greeting}, nil
+	})
 
 	// Start the stdio server
-	if err := server.ServeStdio(s); err != nil {
+	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 		return err
 	}
@@ -246,33 +268,28 @@ func (m *MCPHello) RunServer() error {
 
 func (m *MCPHello) RunClient(string) error {
 	fmt.Printf("%v\n", os.Args)
-	client, err := mgclient.NewStdioMCPClient(os.Args[0], []string{}, "hello", "server")
-	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "mcp-auth-proxy-upstream-client",
+		Version: "1.0.0",
+	}, nil)
+
+	transport := &mcp.CommandTransport{
+		Command: exec.Command(os.Args[0], "hello", "server"),
 	}
+
 	ctx := context.Background()
-	result, err := client.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			ClientInfo: mcp.Implementation{
-				Name:    "mcp-auth-proxy-upstream-client",
-				Version: "1.0.0",
-			},
-		},
-	})
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		log.Fatalf("Failed to connect: %v", err)
+	}
+	defer session.Close()
+
+	result := session.InitializeResult()
 	fmt.Printf("RESULT: %v\n", result)
 	return nil
 }
 
-func helloHandler(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	name, err := request.RequireString("name")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	return mcp.NewToolResultText(fmt.Sprintf("Hello, %s!", name)), nil
-}
-
+// MCPTemperature implements a temperature monitoring MCP server
 type MCPTemperature struct{}
 
 var _ MCPTestServer = (*MCPTemperature)(nil)
@@ -297,57 +314,66 @@ func isValidRoom(room string) bool {
 	return false
 }
 
-func (m *MCPTemperature) createMCPServer() *server.MCPServer {
+// RoomTemperatureInput defines the input schema
+type RoomTemperatureInput struct {
+	Room string `json:"room" jsonschema:"The room name"`
+}
+
+// TemperatureOutput defines the output schema
+type TemperatureOutput struct {
+	Temperature float64 `json:"temperature" jsonschema:"The temperature in Celsius"`
+	Room        string  `json:"room" jsonschema:"The room name"`
+}
+
+func (m *MCPTemperature) createMCPServer() *mcp.Server {
 	// Create MCP server
-	s := server.NewMCPServer(
-		"apartment-temperature-server",
-		"1.0.0",
-		server.WithLogging(),
-	)
+	s := mcp.NewServer(&mcp.Implementation{
+		Name:    "apartment-temperature-server",
+		Version: "1.0.0",
+	}, nil)
 
 	// Register tool: get_room_temperature
-	getRoomTempTool := mcp.NewTool("get_room_temperature",
-		mcp.WithDescription("Get the current temperature in a specific room"),
-		mcp.WithString("room",
-			mcp.Required(),
-			mcp.Description("The room name (kitchen, bathroom, living room, bedroom, kids room)"),
-			mcp.Enum(rooms...),
-		),
-	)
+	getRoomTempTool := &mcp.Tool{
+		Name:        "get_room_temperature",
+		Description: "Get the current temperature in a specific room",
+	}
 
-	s.AddTool(getRoomTempTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Type assert Arguments to map[string]interface{}
-		args, ok := request.Params.Arguments.(map[string]interface{})
-		if !ok {
-			return mcp.NewToolResultError("invalid arguments format"), nil
+	mcp.AddTool(s, getRoomTempTool, func(ctx context.Context, request *mcp.CallToolRequest, input RoomTemperatureInput) (*mcp.CallToolResult, TemperatureOutput, error) {
+		if !isValidRoom(input.Room) {
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{
+					&mcp.TextContent{
+						Text: fmt.Sprintf("Unknown room '%s'. Available rooms: %v", input.Room, rooms),
+					},
+				},
+			}, TemperatureOutput{}, nil
 		}
 
-		roomVal, exists := args["room"]
-		if !exists {
-			return mcp.NewToolResultError("room parameter is required"), nil
-		}
+		temp := getRoomTemperature(input.Room)
+		message := fmt.Sprintf("The temperature in the %s is %.1f°C", input.Room, temp)
 
-		room, ok := roomVal.(string)
-		if !ok {
-			return mcp.NewToolResultError("room parameter must be a string"), nil
-		}
-
-		if !isValidRoom(room) {
-			return mcp.NewToolResultError(fmt.Sprintf("Unknown room '%s'. Available rooms: %v", room, rooms)), nil
-		}
-
-		temp := getRoomTemperature(room)
-		message := fmt.Sprintf("The temperature in the %s is %.1f°C", room, temp)
-
-		return mcp.NewToolResultText(message), nil
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: message,
+				},
+			},
+		}, TemperatureOutput{Temperature: temp, Room: input.Room}, nil
 	})
 
 	// Register tool: get_all_temperatures
-	getAllTempTool := mcp.NewTool("get_all_temperatures",
-		mcp.WithDescription("Get the current temperature in all rooms"),
-	)
+	getAllTempTool := &mcp.Tool{
+		Name:        "get_all_temperatures",
+		Description: "Get the current temperature in all rooms",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}
 
-	s.AddTool(getAllTempTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// For tools with no input, use map[string]any
+	s.AddTool(getAllTempTool, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		result := "Current temperatures in all rooms:\n"
 
 		for _, room := range rooms {
@@ -355,7 +381,13 @@ func (m *MCPTemperature) createMCPServer() *server.MCPServer {
 			result += fmt.Sprintf("%s: %.1f°C\n", room, temp)
 		}
 
-		return mcp.NewToolResultText(result), nil
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: result,
+				},
+			},
+		}, nil
 	})
 
 	return s
@@ -363,16 +395,24 @@ func (m *MCPTemperature) createMCPServer() *server.MCPServer {
 
 func (m *MCPTemperature) GetHTTPHandler() (http.Handler, error) {
 	s := m.createMCPServer()
-	httpServer := server.NewStreamableHTTPServer(s)
-	return httpServer, nil
+	httpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		return s
+	}, nil)
+	return httpHandler, nil
 }
 
 func (m *MCPTemperature) RunServer() error {
 	s := m.createMCPServer()
-	httpServer := server.NewStreamableHTTPServer(s)
+	httpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		return s
+	}, nil)
 
-	fmt.Printf("Starting temperature mcp server as StreamableHTTPServer on port 7752\n")
-	if err := httpServer.Start("localhost:7752"); err != nil {
+	fmt.Printf("Starting temperature MCP server as StreamableHTTPServer on http://localhost:7752/mcp\n")
+	server := &http.Server{
+		Addr:    "localhost:7752",
+		Handler: httpHandler,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 		return err
 	}
@@ -383,40 +423,33 @@ func (m *MCPTemperature) RunClient(url string) error {
 	if url == "" {
 		url = "http://localhost:7752/mcp"
 	}
-	// Create a new StreamableHttpClient for the StreamableHTTPServer
-	c, err := mgclient.NewStreamableHttpClient(url)
-	if err != nil {
-		log.Fatal(err)
+
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "temperature-client",
+		Version: "1.0.0",
+	}, nil)
+
+	transport := &mcp.StreamableClientTransport{
+		Endpoint: url,
 	}
 
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Start the transport first
-	if err := c.Start(ctx); err != nil {
-		log.Fatalf("Failed to start transport: %v", err)
-	}
-
-	// Initialize the connection
-	initResult, err := c.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			ClientInfo: mcp.Implementation{
-				Name:    "temperature-client",
-				Version: "1.0.0",
-			},
-		},
-	})
+	// Connect to the server
+	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		log.Fatalf("Failed to initialize: %v", err)
+		log.Fatal(err)
 	}
+	defer session.Close()
 
+	initResult := session.InitializeResult()
 	fmt.Printf("Connected to: %s v%s\n", initResult.ServerInfo.Name, initResult.ServerInfo.Version)
 	fmt.Println()
 
 	// List available tools
-	toolsResult, err := c.ListTools(ctx, mcp.ListToolsRequest{})
+	toolsResult, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 	if err != nil {
 		log.Fatalf("Failed to list tools: %v", err)
 	}
@@ -429,31 +462,35 @@ func (m *MCPTemperature) RunClient(url string) error {
 
 	// Test 1: Get all temperatures
 	fmt.Println("=== Getting all room temperatures ===")
-	result, err := c.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name:      "get_all_temperatures",
-			Arguments: map[string]interface{}{},
-		},
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "get_all_temperatures",
+		Arguments: map[string]interface{}{},
 	})
 	if err != nil {
 		log.Printf("Error calling tool: %v\n", err)
 	} else if result.IsError {
-		fmt.Printf("Error: %s\n", result.Content[0])
+		for _, content := range result.Content {
+			if textContent, ok := content.(*mcp.TextContent); ok {
+				fmt.Printf("Error: %s\n", textContent.Text)
+			}
+		}
 	} else {
-		fmt.Println(result.Content[0])
+		for _, content := range result.Content {
+			if textContent, ok := content.(*mcp.TextContent); ok {
+				fmt.Println(textContent.Text)
+			}
+		}
 	}
 
 	// Test 2: Get individual room temperatures
-	rooms := []string{"kitchen", "bathroom", "living room", "bedroom", "kids room"}
+	testRooms := []string{"kitchen", "bathroom", "living room", "bedroom", "kids room"}
 
 	fmt.Println("=== Getting individual room temperatures ===")
-	for _, room := range rooms {
-		result, err := c.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{
-				Name: "get_room_temperature",
-				Arguments: map[string]interface{}{
-					"room": room,
-				},
+	for _, room := range testRooms {
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "get_room_temperature",
+			Arguments: map[string]interface{}{
+				"room": room,
 			},
 		})
 
@@ -463,37 +500,45 @@ func (m *MCPTemperature) RunClient(url string) error {
 		}
 
 		if result.IsError {
-			fmt.Printf("Error for %s: %s\n", room, result.Content[0])
+			for _, content := range result.Content {
+				if textContent, ok := content.(*mcp.TextContent); ok {
+					fmt.Printf("Error for %s: %s\n", room, textContent.Text)
+				}
+			}
 		} else {
-			fmt.Println(result.Content[0])
+			for _, content := range result.Content {
+				if textContent, ok := content.(*mcp.TextContent); ok {
+					fmt.Println(textContent.Text)
+				}
+			}
 		}
 	}
 	fmt.Println()
 
 	// Test 3: Try an invalid room (should get error)
 	fmt.Println("=== Testing invalid room ===")
-	result, err = c.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "get_room_temperature",
-			Arguments: map[string]interface{}{
-				"room": "garage",
-			},
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_room_temperature",
+		Arguments: map[string]interface{}{
+			"room": "garage",
 		},
 	})
 	if err != nil {
 		log.Printf("Error calling tool: %v\n", err)
 	} else if result.IsError {
-		fmt.Printf("Expected error received: %s\n", result.Content[0])
+		for _, content := range result.Content {
+			if textContent, ok := content.(*mcp.TextContent); ok {
+				fmt.Printf("Expected error received: %s\n", textContent.Text)
+			}
+		}
 	} else {
-		fmt.Println(result.Content[0])
+		for _, content := range result.Content {
+			if textContent, ok := content.(*mcp.TextContent); ok {
+				fmt.Println(textContent.Text)
+			}
+		}
 	}
 	fmt.Println()
-
-	// Close the connection
-	if err := c.Close(); err != nil {
-		log.Printf("Error closing client: %v", err)
-		return err
-	}
 
 	fmt.Println("Client finished successfully")
 	return nil
