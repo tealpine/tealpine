@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"slices"
 	"sync"
 	"time"
 
@@ -69,10 +70,20 @@ func NewClient(cfg MCPConfig) *Client {
 	return s
 }
 
-func (cs *Client) RegisterListener(listener ConnectionListener) {
+func (cs *Client) AddListener(listener ConnectionListener) {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
-	cs.listeners = append(cs.listeners, listener) //TODO: how to unregister listener?
+	cs.listeners = append(cs.listeners, listener)
+}
+
+func (cs *Client) RemoveListener(listener ConnectionListener) {
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+	idx := slices.Index(cs.listeners, listener)
+	if idx == -1 {
+		panic("listener not found")
+	}
+	cs.listeners = slices.Delete(cs.listeners, idx, idx+1)
 }
 
 func (cs *Client) GetInitResult() *mcp.InitializeResult {
@@ -248,9 +259,11 @@ func (cs *Client) WaitForConnection(ctx context.Context) error {
 		return nil
 	}
 	l := newListener()
-	defer close(l.ch)
-	//TODO: unregister listener
-	cs.RegisterListener(l)
+	defer func() {
+		cs.RemoveListener(l)
+		close(l.ch)
+	}()
+	cs.AddListener(l)
 
 	select {
 	case <-ctx.Done():

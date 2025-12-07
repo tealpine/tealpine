@@ -95,6 +95,15 @@ func (s *Server) Init(ctx context.Context) error {
 	return nil
 }
 
+func (s *Server) WaitForClients(ctx context.Context) error {
+	for name, client := range s.clients {
+		if err := client.WaitForConnection(ctx); err != nil {
+			return fmt.Errorf("failed to wait for client %s to connect: %w", name, err)
+		}
+	}
+	return nil
+}
+
 func (s *Server) Run() error {
 	log.Printf("Starting server on %s", s.httpServer.Addr)
 	if err := s.httpServer.ListenAndServe(); err != http.ErrServerClosed {

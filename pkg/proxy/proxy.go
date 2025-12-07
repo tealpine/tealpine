@@ -17,16 +17,17 @@ import (
 // It exposes an MCP server (via StreamableHTTP) and forwards
 // all requests to an upstream MCP client
 type SingleProxy struct {
-	transport           string
-	path                string
-	client              *Client
-	mcpServer           *mcp.Server
-	httpHandler         http.Handler
-	auth                *auth.Auth
-	ctx                 context.Context
-	registeredTools     []string
-	registeredResources []string
-	registeredPrompts   []string
+	transport                   string
+	path                        string
+	client                      *Client
+	mcpServer                   *mcp.Server
+	httpHandler                 http.Handler
+	auth                        *auth.Auth
+	ctx                         context.Context
+	registeredTools             []string
+	registeredResources         []string
+	registeredResourceTemplates []string
+	registeredPrompts           []string
 }
 
 // NewSingleProxy creates a new proxy that will expose the given client
@@ -64,7 +65,7 @@ func (p *SingleProxy) Init(ctx context.Context) error {
 	}
 
 	// Register this proxy as a listener for connection events
-	p.client.RegisterListener(p)
+	p.client.AddListener(p)
 
 	// If client is already connected, set up handlers immediately
 	if initResult := p.client.GetInitResult(); initResult != nil {
@@ -92,7 +93,7 @@ func (p *SingleProxy) OnConnected(initResult *mcp.InitializeResult) error {
 	return nil
 }
 
-// clearHandlers removes all tools, resources, and prompts from the MCP server
+// clearHandlers removes all tools, resources, resource templates, and prompts from the MCP server
 func (p *SingleProxy) clearHandlers() {
 	// Delete all previously registered handlers
 	if len(p.registeredTools) > 0 {
@@ -102,6 +103,10 @@ func (p *SingleProxy) clearHandlers() {
 	if len(p.registeredResources) > 0 {
 		p.mcpServer.RemoveResources(p.registeredResources...)
 		p.registeredResources = nil
+	}
+	if len(p.registeredResourceTemplates) > 0 {
+		p.mcpServer.RemoveResourceTemplates(p.registeredResourceTemplates...)
+		p.registeredResourceTemplates = nil
 	}
 	if len(p.registeredPrompts) > 0 {
 		p.mcpServer.RemovePrompts(p.registeredPrompts...)
@@ -115,8 +120,9 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mcp.In
 	if initResult.Capabilities.Tools != nil {
 		// Fetch all tools from upstream
 		var allTools []*mcp.Tool
+		nextCursor := ""
 		for {
-			toolsResult, err := p.client.ListTools(ctx, &mcp.ListToolsParams{}) //TODO: next cursor should be set
+			toolsResult, err := p.client.ListTools(ctx, &mcp.ListToolsParams{Cursor: nextCursor})
 			if err != nil {
 				return fmt.Errorf("failed to list tools from upstream: %w", err)
 			}
@@ -124,7 +130,8 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mcp.In
 				break
 			}
 			allTools = append(allTools, toolsResult.Tools...)
-			if toolsResult.NextCursor == "" {
+			nextCursor = toolsResult.NextCursor
+			if nextCursor == "" {
 				break
 			}
 		}
@@ -146,8 +153,9 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mcp.In
 	if initResult.Capabilities.Resources != nil {
 		// Fetch all resources from upstream
 		var allResources []*mcp.Resource
+		nextCursor := ""
 		for {
-			resourcesResult, err := p.client.ListResources(ctx, &mcp.ListResourcesParams{})
+			resourcesResult, err := p.client.ListResources(ctx, &mcp.ListResourcesParams{Cursor: nextCursor})
 			if err != nil {
 				return fmt.Errorf("failed to list resources from upstream: %w", err)
 			}
@@ -155,7 +163,8 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mcp.In
 				break
 			}
 			allResources = append(allResources, resourcesResult.Resources...)
-			if resourcesResult.NextCursor == "" {
+			nextCursor = resourcesResult.NextCursor
+			if nextCursor == "" {
 				break
 			}
 		}
@@ -170,16 +179,41 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mcp.In
 			p.registeredResources = append(p.registeredResources, resource.URI)
 		}
 
-		//TODO: check below if new pkg supports resource templates
-		// Note: Resource templates are not registered because they cannot be deleted,
-		// which would cause issues on reconnection. Clients should use regular resources instead.
+		// Fetch all resource templates from upstream
+		var allResourceTemplates []*mcp.ResourceTemplate
+		nextCursor = ""
+		for {
+			templatesResult, err := p.client.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{Cursor: nextCursor})
+			if err != nil {
+				return fmt.Errorf("failed to list resource templates from upstream: %w", err)
+			}
+			if len(templatesResult.ResourceTemplates) == 0 {
+				break
+			}
+			allResourceTemplates = append(allResourceTemplates, templatesResult.ResourceTemplates...)
+			nextCursor = templatesResult.NextCursor
+			if nextCursor == "" {
+				break
+			}
+		}
+
+		// Register each resource template with a proxy handler
+		for _, template := range allResourceTemplates {
+			templateCopy := template // Capture for closure
+			p.mcpServer.AddResourceTemplate(templateCopy, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+				// Forward the resource read to the upstream client
+				return p.client.ReadResource(ctx, &mcp.ReadResourceParams{URI: req.Params.URI})
+			})
+			p.registeredResourceTemplates = append(p.registeredResourceTemplates, template.URITemplate)
+		}
 	}
 
 	if initResult.Capabilities.Prompts != nil {
 		// Fetch all prompts from upstream
 		var allPrompts []*mcp.Prompt
+		nextCursor := ""
 		for {
-			promptsResult, err := p.client.ListPrompts(ctx, &mcp.ListPromptsParams{})
+			promptsResult, err := p.client.ListPrompts(ctx, &mcp.ListPromptsParams{Cursor: nextCursor})
 			if err != nil {
 				return fmt.Errorf("failed to list prompts from upstream: %w", err)
 			}
@@ -187,7 +221,8 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mcp.In
 				break
 			}
 			allPrompts = append(allPrompts, promptsResult.Prompts...)
-			if promptsResult.NextCursor == "" {
+			nextCursor = promptsResult.NextCursor
+			if nextCursor == "" {
 				break
 			}
 		}
@@ -232,18 +267,19 @@ func (l *multiProxyClientListener) OnConnected(initResult *mcp.InitializeResult)
 
 // MultiProxy acts as a bridge between multiple MCP clients and a single server endpoint
 type MultiProxy struct {
-	transport        string
-	path             string
-	clients          map[string]*Client
-	mcps             []MultiMCPConfig
-	mcpServer        *mcp.Server
-	httpHandler      http.Handler
-	auth             *auth.Auth
-	ctx              context.Context
-	mu               sync.RWMutex        // protects registeredTools, registeredRes, registeredPropts
-	registeredTools  map[string][]string // client name -> tool names
-	registeredRes    map[string][]string // client name -> resource URIs
-	registeredPropts map[string][]string // client name -> prompt names
+	transport           string
+	path                string
+	clients             map[string]*Client
+	mcps                []MultiMCPConfig
+	mcpServer           *mcp.Server
+	httpHandler         http.Handler
+	auth                *auth.Auth
+	ctx                 context.Context
+	mu                  sync.RWMutex        // protects registeredTools, registeredRes, registeredResTemplates, registeredPropts
+	registeredTools     map[string][]string // client name -> tool names
+	registeredRes       map[string][]string // client name -> resource URIs
+	registeredResTemplates map[string][]string // client name -> resource template URIs
+	registeredPropts    map[string][]string // client name -> prompt names
 }
 
 // NewMultiProxy creates a new multi-proxy
@@ -255,14 +291,15 @@ func NewMultiProxy(
 	authMiddleware *auth.Auth,
 ) *MultiProxy {
 	return &MultiProxy{
-		transport:        transport,
-		path:             path,
-		clients:          clients,
-		mcps:             mcps,
-		auth:             authMiddleware,
-		registeredTools:  make(map[string][]string),
-		registeredRes:    make(map[string][]string),
-		registeredPropts: make(map[string][]string),
+		transport:              transport,
+		path:                   path,
+		clients:                clients,
+		mcps:                   mcps,
+		auth:                   authMiddleware,
+		registeredTools:        make(map[string][]string),
+		registeredRes:          make(map[string][]string),
+		registeredResTemplates: make(map[string][]string),
+		registeredPropts:       make(map[string][]string),
 	}
 }
 
@@ -295,7 +332,7 @@ func (p *MultiProxy) Init(ctx context.Context) error {
 		}
 
 		// Register as listener
-		client.RegisterListener(&multiProxyClientListener{
+		client.AddListener(&multiProxyClientListener{
 			proxy:      p,
 			clientName: mcpConfig.Name,
 			prefix:     mcpConfig.Prefix,
@@ -344,6 +381,12 @@ func (p *MultiProxy) clearClientHandlers(clientName string) {
 		delete(p.registeredRes, clientName)
 	}
 
+	// Delete resource templates for this client
+	if resTemplateURIs, ok := p.registeredResTemplates[clientName]; ok && len(resTemplateURIs) > 0 {
+		p.mcpServer.RemoveResourceTemplates(resTemplateURIs...)
+		delete(p.registeredResTemplates, clientName)
+	}
+
 	// Delete prompts for this client
 	if promptNames, ok := p.registeredPropts[clientName]; ok && len(promptNames) > 0 {
 		p.mcpServer.RemovePrompts(promptNames...)
@@ -355,8 +398,9 @@ func (p *MultiProxy) clearClientHandlers(clientName string) {
 func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, initResult *mcp.InitializeResult, clientName, prefix string) error {
 	if initResult.Capabilities.Tools != nil {
 		var allTools []*mcp.Tool
+		nextCursor := ""
 		for {
-			toolsResult, err := client.ListTools(ctx, &mcp.ListToolsParams{})
+			toolsResult, err := client.ListTools(ctx, &mcp.ListToolsParams{Cursor: nextCursor})
 			if err != nil {
 				return fmt.Errorf("failed to list tools from upstream: %w", err)
 			}
@@ -364,7 +408,8 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 				break
 			}
 			allTools = append(allTools, toolsResult.Tools...)
-			if toolsResult.NextCursor == "" {
+			nextCursor = toolsResult.NextCursor
+			if nextCursor == "" {
 				break
 			}
 		}
@@ -390,8 +435,9 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 
 	if initResult.Capabilities.Resources != nil {
 		var allResources []*mcp.Resource
+		nextCursor := ""
 		for {
-			resourcesResult, err := client.ListResources(ctx, &mcp.ListResourcesParams{})
+			resourcesResult, err := client.ListResources(ctx, &mcp.ListResourcesParams{Cursor: nextCursor})
 			if err != nil {
 				return fmt.Errorf("failed to list resources from upstream: %w", err)
 			}
@@ -399,7 +445,8 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 				break
 			}
 			allResources = append(allResources, resourcesResult.Resources...)
-			if resourcesResult.NextCursor == "" {
+			nextCursor = resourcesResult.NextCursor
+			if nextCursor == "" {
 				break
 			}
 		}
@@ -419,14 +466,46 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 		p.registeredRes[clientName] = append(p.registeredRes[clientName], resourceURIs...)
 		p.mu.Unlock()
 
-		// Note: Resource templates are not registered because they cannot be deleted,
-		// which would cause issues on reconnection. Clients should use regular resources instead.
+		// Fetch all resource templates from upstream
+		var allResourceTemplates []*mcp.ResourceTemplate
+		nextCursor = ""
+		for {
+			templatesResult, err := client.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{Cursor: nextCursor})
+			if err != nil {
+				return fmt.Errorf("failed to list resource templates from upstream: %w", err)
+			}
+			if len(templatesResult.ResourceTemplates) == 0 {
+				break
+			}
+			allResourceTemplates = append(allResourceTemplates, templatesResult.ResourceTemplates...)
+			nextCursor = templatesResult.NextCursor
+			if nextCursor == "" {
+				break
+			}
+		}
+
+		// Register each resource template with a proxy handler
+		var templateURIs []string
+		for _, template := range allResourceTemplates {
+			templateCopy := *template // Dereference and copy
+			templateCopy.Name = prefix + "_" + templateCopy.Name
+			p.mcpServer.AddResourceTemplate(&templateCopy, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+				originalURI := strings.TrimPrefix(req.Params.URI, prefix+"_")
+				return client.ReadResource(ctx, &mcp.ReadResourceParams{URI: originalURI})
+			})
+			templateURIs = append(templateURIs, templateCopy.URITemplate)
+		}
+
+		p.mu.Lock()
+		p.registeredResTemplates[clientName] = append(p.registeredResTemplates[clientName], templateURIs...)
+		p.mu.Unlock()
 	}
 
 	if initResult.Capabilities.Prompts != nil {
 		var allPrompts []*mcp.Prompt
+		nextCursor := ""
 		for {
-			promptsResult, err := client.ListPrompts(ctx, &mcp.ListPromptsParams{})
+			promptsResult, err := client.ListPrompts(ctx, &mcp.ListPromptsParams{Cursor: nextCursor})
 			if err != nil {
 				return fmt.Errorf("failed to list prompts from upstream: %w", err)
 			}
@@ -434,7 +513,8 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 				break
 			}
 			allPrompts = append(allPrompts, promptsResult.Prompts...)
-			if promptsResult.NextCursor == "" {
+			nextCursor = promptsResult.NextCursor
+			if nextCursor == "" {
 				break
 			}
 		}

@@ -185,8 +185,9 @@ func TestServer(t *testing.T) {
 		}
 	}()
 
-	// Give server time to start #TODO add some method which ends when all clients are connected
-	time.Sleep(900 * time.Millisecond)
+	// Wait for all clients to connect
+	err = server.WaitForClients(ctx)
+	require.NoError(t, err)
 
 	// 6. Ensure server cleanup
 	defer func() {

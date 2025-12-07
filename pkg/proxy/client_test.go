@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -296,7 +297,8 @@ func TestClientWithStdioServer(t *testing.T) {
 
 func TestClientWithBearerToken_StreamableHTTP(t *testing.T) {
 	expectedToken := "test-bearer-token-456"
-	receivedToken := ""
+	var receivedToken string
+	var mu sync.Mutex
 
 	// Create a custom handler that checks for the Authorization header
 	tempServer := &mcptest.MCPTemperature{}
@@ -307,7 +309,9 @@ func TestClientWithBearerToken_StreamableHTTP(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader != "" {
+			mu.Lock()
 			receivedToken = authHeader
+			mu.Unlock()
 		}
 		baseHandler.ServeHTTP(w, r)
 	})
@@ -335,7 +339,10 @@ func TestClientWithBearerToken_StreamableHTTP(t *testing.T) {
 	require.NotNil(t, client.initResult, "Init result should not be nil")
 
 	// Verify the bearer token was sent
-	require.Equal(t, "Bearer "+expectedToken, receivedToken, "Authorization header should contain bearer token")
+	mu.Lock()
+	token := receivedToken
+	mu.Unlock()
+	require.Equal(t, "Bearer "+expectedToken, token, "Authorization header should contain bearer token")
 
 	// Test that the client can successfully call tools
 	result, err := client.CallTool(ctx, &mcp.CallToolParams{
