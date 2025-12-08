@@ -34,7 +34,7 @@ func (s *Server) Init(ctx context.Context) error {
 
 	// 2. Create and initialize all proxies
 	for name, proxyConfig := range s.cfg.Proxy {
-		// Create auth middleware for this proxy
+		// Build users map for authentication
 		users := make(map[string]*auth.UserInfo)
 		for username, userConfig := range s.cfg.Users {
 			users[username] = &auth.UserInfo{
@@ -43,6 +43,7 @@ func (s *Server) Init(ctx context.Context) error {
 			}
 		}
 
+		// Build auth rules for authorization
 		authRules := make([]auth.AuthRule, 0, len(proxyConfig.Auth))
 		for _, rule := range proxyConfig.Auth {
 			authRules = append(authRules, auth.AuthRule{
@@ -53,9 +54,13 @@ func (s *Server) Init(ctx context.Context) error {
 			})
 		}
 
-		authMiddleware, err := auth.NewAuth(users, authRules)
+		// Create authenticator (HTTP middleware for token validation)
+		authenticator := auth.NewAuthenticator(users)
+
+		// Create authorizer (MCP middleware for Casbin enforcement)
+		authorizer, err := auth.NewAuthorizer(users, authRules)
 		if err != nil {
-			return fmt.Errorf("failed to create auth middleware for proxy %s: %w", name, err)
+			return fmt.Errorf("failed to create authorizer for proxy %s: %w", name, err)
 		}
 
 		var proxy http.Handler
@@ -64,13 +69,13 @@ func (s *Server) Init(ctx context.Context) error {
 			if !ok {
 				return fmt.Errorf("client not found for proxy %s: %s", name, proxyConfig.MCP)
 			}
-			singleProxy := NewSingleProxy(proxyConfig.Transport, client, proxyConfig.Path, authMiddleware)
+			singleProxy := NewSingleProxy(proxyConfig.Transport, client, proxyConfig.Path, authenticator, authorizer)
 			if err := singleProxy.Init(ctx); err != nil {
 				return fmt.Errorf("failed to initialize single proxy %s: %w", name, err)
 			}
 			proxy = singleProxy
 		} else if len(proxyConfig.MCPs) > 0 { // Multi Proxy
-			multiProxy := NewMultiProxy(proxyConfig.Transport, s.clients, proxyConfig.MCPs, proxyConfig.Path, authMiddleware)
+			multiProxy := NewMultiProxy(proxyConfig.Transport, s.clients, proxyConfig.MCPs, proxyConfig.Path, authenticator, authorizer)
 			if err := multiProxy.Init(ctx); err != nil {
 				return fmt.Errorf("failed to initialize multi proxy %s: %w", name, err)
 			}

@@ -22,7 +22,8 @@ type SingleProxy struct {
 	client                      *Client
 	mcpServer                   *mcp.Server
 	httpHandler                 http.Handler
-	auth                        *auth.Auth
+	authenticator               *auth.Authenticator
+	authorizer                  *auth.Authorizer
 	ctx                         context.Context
 	registeredTools             []string
 	registeredResources         []string
@@ -32,12 +33,13 @@ type SingleProxy struct {
 
 // NewSingleProxy creates a new proxy that will expose the given client
 // via the specified transport (streamablehttp)
-func NewSingleProxy(transport string, client *Client, path string, authMiddleware *auth.Auth) *SingleProxy {
+func NewSingleProxy(transport string, client *Client, path string, authenticator *auth.Authenticator, authorizer *auth.Authorizer) *SingleProxy {
 	return &SingleProxy{
-		transport: transport,
-		path:      path,
-		client:    client,
-		auth:      authMiddleware,
+		transport:     transport,
+		path:          path,
+		client:        client,
+		authenticator: authenticator,
+		authorizer:    authorizer,
 	}
 }
 
@@ -53,6 +55,9 @@ func (p *SingleProxy) Init(ctx context.Context) error {
 	}, &mcp.ServerOptions{
 		Instructions: "MCP Authentication Proxy",
 	})
+
+	// Add authorization middleware to the MCP server
+	p.mcpServer.AddReceivingMiddleware(p.authorizer.Middleware)
 
 	// Create the appropriate transport server
 	switch p.transport {
@@ -251,7 +256,7 @@ func (p *SingleProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "proxy not initialized", http.StatusInternalServerError)
 		return
 	}
-	p.auth.Middleware(p.httpHandler).ServeHTTP(w, r)
+	p.authenticator.Middleware(p.httpHandler).ServeHTTP(w, r)
 }
 
 // multiProxyClientListener is a helper that implements ConnectionListener for MultiProxy
@@ -267,19 +272,20 @@ func (l *multiProxyClientListener) OnConnected(initResult *mcp.InitializeResult)
 
 // MultiProxy acts as a bridge between multiple MCP clients and a single server endpoint
 type MultiProxy struct {
-	transport           string
-	path                string
-	clients             map[string]*Client
-	mcps                []MultiMCPConfig
-	mcpServer           *mcp.Server
-	httpHandler         http.Handler
-	auth                *auth.Auth
-	ctx                 context.Context
-	mu                  sync.RWMutex        // protects registeredTools, registeredRes, registeredResTemplates, registeredPropts
-	registeredTools     map[string][]string // client name -> tool names
-	registeredRes       map[string][]string // client name -> resource URIs
+	transport              string
+	path                   string
+	clients                map[string]*Client
+	mcps                   []MultiMCPConfig
+	mcpServer              *mcp.Server
+	httpHandler            http.Handler
+	authenticator          *auth.Authenticator
+	authorizer             *auth.Authorizer
+	ctx                    context.Context
+	mu                     sync.RWMutex        // protects registeredTools, registeredRes, registeredResTemplates, registeredPropts
+	registeredTools        map[string][]string // client name -> tool names
+	registeredRes          map[string][]string // client name -> resource URIs
 	registeredResTemplates map[string][]string // client name -> resource template URIs
-	registeredPropts    map[string][]string // client name -> prompt names
+	registeredPropts       map[string][]string // client name -> prompt names
 }
 
 // NewMultiProxy creates a new multi-proxy
@@ -288,14 +294,16 @@ func NewMultiProxy(
 	clients map[string]*Client,
 	mcps []MultiMCPConfig,
 	path string,
-	authMiddleware *auth.Auth,
+	authenticator *auth.Authenticator,
+	authorizer *auth.Authorizer,
 ) *MultiProxy {
 	return &MultiProxy{
 		transport:              transport,
 		path:                   path,
 		clients:                clients,
 		mcps:                   mcps,
-		auth:                   authMiddleware,
+		authenticator:          authenticator,
+		authorizer:             authorizer,
 		registeredTools:        make(map[string][]string),
 		registeredRes:          make(map[string][]string),
 		registeredResTemplates: make(map[string][]string),
@@ -313,6 +321,9 @@ func (p *MultiProxy) Init(ctx context.Context) error {
 	}, &mcp.ServerOptions{
 		Instructions: "MCP Authentication Multi-Proxy",
 	})
+
+	// Add authorization middleware to the MCP server
+	p.mcpServer.AddReceivingMiddleware(p.authorizer.Middleware)
 
 	// Create the appropriate transport server
 	switch p.transport {
@@ -547,5 +558,5 @@ func (p *MultiProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "proxy not initialized", http.StatusInternalServerError)
 		return
 	}
-	p.auth.Middleware(p.httpHandler).ServeHTTP(w, r)
+	p.authenticator.Middleware(p.httpHandler).ServeHTTP(w, r)
 }

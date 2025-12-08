@@ -41,12 +41,13 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 	require.NoError(t, err)
 	defer upstreamClient.Close()
 
-	// Create auth middleware (no auth rules for test)
-	authMiddleware, err := auth.NewAuth(make(map[string]*auth.UserInfo), []auth.AuthRule{})
+	// Create authenticator and authorizer (no auth for test)
+	authenticator := auth.NewAuthenticator(make(map[string]*auth.UserInfo))
+	authorizer, err := auth.NewAuthorizer(make(map[string]*auth.UserInfo), []auth.AuthRule{})
 	require.NoError(t, err)
 
 	// Create proxy
-	proxy := NewSingleProxy("streamablehttp", upstreamClient, "", authMiddleware)
+	proxy := NewSingleProxy("streamablehttp", upstreamClient, "", authenticator, authorizer)
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 
@@ -111,12 +112,13 @@ func TestProxyStreamableHttpTemperature(t *testing.T) {
 	require.NoError(t, err)
 	defer upstreamClient.Close()
 
-	// Create auth middleware (no auth rules for test)
-	authMiddleware, err := auth.NewAuth(make(map[string]*auth.UserInfo), []auth.AuthRule{})
+	// Create authenticator and authorizer (no auth for test)
+	authenticator := auth.NewAuthenticator(make(map[string]*auth.UserInfo))
+	authorizer, err := auth.NewAuthorizer(make(map[string]*auth.UserInfo), []auth.AuthRule{})
 	require.NoError(t, err)
 
 	// Create proxy
-	proxy := NewSingleProxy("streamablehttp", upstreamClient, "", authMiddleware)
+	proxy := NewSingleProxy("streamablehttp", upstreamClient, "", authenticator, authorizer)
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 
@@ -229,12 +231,13 @@ func TestMultiProxy(t *testing.T) {
 		{Name: "hello", Prefix: "hello"},
 	}
 
-	// 4. Create auth middleware (no auth rules for test)
-	authMiddleware, err := auth.NewAuth(make(map[string]*auth.UserInfo), []auth.AuthRule{})
+	// 4. Create authenticator and authorizer (no auth for test)
+	authenticator := auth.NewAuthenticator(make(map[string]*auth.UserInfo))
+	authorizer, err := auth.NewAuthorizer(make(map[string]*auth.UserInfo), []auth.AuthRule{})
 	require.NoError(t, err)
 
 	// 5. Create MultiProxy
-	proxy := NewMultiProxy("streamablehttp", clients, multiProxyConfig, "", authMiddleware)
+	proxy := NewMultiProxy("streamablehttp", clients, multiProxyConfig, "", authenticator, authorizer)
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 
