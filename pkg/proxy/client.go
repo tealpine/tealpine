@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
-	"slices"
 	"sync"
 	"time"
 
@@ -27,11 +26,6 @@ func (t *bearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	return t.wrapped.RoundTrip(req)
 }
 
-// ConnectionListener is notified when the client connects or reconnects
-type ConnectionListener interface {
-	OnConnected(initResult *mcp.InitializeResult) error
-}
-
 type Client struct {
 	cfg        MCPConfig
 	client     *mcp.Client
@@ -44,7 +38,7 @@ type Client struct {
 	lastError   error
 	errorCh     chan struct{}
 	cancel      context.CancelFunc
-	listeners   []ConnectionListener
+	connectedCh chan struct{}
 	log         *logrus.Entry
 }
 
@@ -62,28 +56,13 @@ func NewClient(cfg MCPConfig) *Client {
 	})
 
 	s := &Client{
-		cfg:     cfg,
-		errorCh: make(chan struct{}),
-		log:     log,
+		cfg:         cfg,
+		errorCh:     make(chan struct{}),
+		connectedCh: make(chan struct{}),
+		log:         log,
 	}
 
 	return s
-}
-
-func (cs *Client) AddListener(listener ConnectionListener) {
-	cs.mutex.Lock()
-	defer cs.mutex.Unlock()
-	cs.listeners = append(cs.listeners, listener)
-}
-
-func (cs *Client) RemoveListener(listener ConnectionListener) {
-	cs.mutex.Lock()
-	defer cs.mutex.Unlock()
-	idx := slices.Index(cs.listeners, listener)
-	if idx == -1 {
-		panic("listener not found")
-	}
-	cs.listeners = slices.Delete(cs.listeners, idx, idx+1)
 }
 
 func (cs *Client) GetInitResult() *mcp.InitializeResult {
@@ -162,16 +141,10 @@ func (cs *Client) init(ctx context.Context) error {
 	cs.session = session
 	cs.isConnected = true
 	cs.isClosed = false
-	listeners := make([]ConnectionListener, len(cs.listeners))
-	copy(listeners, cs.listeners)
-	cs.mutex.Unlock()
 
-	// Notify listeners outside the lock to avoid deadlock
-	for _, listener := range listeners {
-		if err := listener.OnConnected(result); err != nil {
-			cs.log.WithError(err).Error("Failed to notify listener of connection")
-		}
-	}
+	// Close the connected channel to wake up all waiting goroutines
+	close(cs.connectedCh)
+	cs.mutex.Unlock()
 
 	return nil
 }
@@ -239,39 +212,21 @@ func (cs *Client) Close() error {
 	return nil
 }
 
-type listener struct {
-	ch chan struct{}
-}
-
-func newListener() *listener {
-	return &listener{
-		ch: make(chan struct{}),
-	}
-}
-
-func (l *listener) OnConnected(_ *mcp.InitializeResult) error {
-	l.ch <- struct{}{}
-	return nil
-}
-
 func (cs *Client) WaitForConnection(ctx context.Context) error {
-	if cs.IsConnected() {
+	cs.mutex.Lock()
+	if cs.isConnected {
+		cs.mutex.Unlock()
 		return nil
 	}
-	l := newListener()
-	defer func() {
-		cs.RemoveListener(l)
-		close(l.ch)
-	}()
-	cs.AddListener(l)
+	connectedCh := cs.connectedCh
+	cs.mutex.Unlock()
 
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("context exceeded")
-	case <-l.ch:
+	case <-connectedCh:
 		return nil
 	}
-
 }
 
 func (cs *Client) getSession() *mcp.ClientSession {
@@ -373,6 +328,10 @@ func (cs *Client) setDisconnected(session *mcp.ClientSession, err error) {
 	cs.session = nil
 	cs.isConnected = false
 	cs.lastError = err
+
+	// Create a new channel for the next connection
+	cs.connectedCh = make(chan struct{})
+
 	select {
 	case cs.errorCh <- struct{}{}:
 	default:

@@ -69,9 +69,6 @@ func (p *SingleProxy) Init(ctx context.Context) error {
 		return fmt.Errorf("unsupported transport: %s (must be 'streamablehttp')", p.transport)
 	}
 
-	// Register this proxy as a listener for connection events
-	p.client.AddListener(p)
-
 	// If client is already connected, set up handlers immediately
 	if initResult := p.client.GetInitResult(); initResult != nil {
 		if err := p.setupProxyHandlers(ctx, initResult); err != nil {
@@ -79,23 +76,42 @@ func (p *SingleProxy) Init(ctx context.Context) error {
 		}
 	}
 
+	// Start a goroutine to watch for connection/reconnection events
+	go p.watchConnectionEvents(ctx)
+
 	return nil
 }
 
-// OnConnected implements ConnectionListener interface
-// Called when the client connects or reconnects to the upstream MCP server
-func (p *SingleProxy) OnConnected(initResult *mcp.InitializeResult) error {
-	logrus.Info("SingleProxy.OnConnected called - updating handlers")
-	// Clear all existing handlers before registering new ones
-	p.clearHandlers()
+// watchConnectionEvents monitors the client for connection/reconnection events
+// and updates the proxy handlers accordingly
+func (p *SingleProxy) watchConnectionEvents(ctx context.Context) {
+	for {
+		// Wait for the next connection event
+		if err := p.client.WaitForConnection(ctx); err != nil {
+			// Context cancelled or closed
+			return
+		}
 
-	// Set up handlers with the new capabilities
-	if err := p.setupProxyHandlers(p.ctx, initResult); err != nil {
-		logrus.WithError(err).Error("Failed to setup proxy handlers on reconnect")
-		return err
+		logrus.Info("SingleProxy: client connected/reconnected - updating handlers")
+
+		// Clear all existing handlers before registering new ones
+		p.clearHandlers()
+
+		// Get the new initialization result
+		initResult := p.client.GetInitResult()
+		if initResult == nil {
+			logrus.Warn("SingleProxy: got connection event but initResult is nil")
+			continue
+		}
+
+		// Set up handlers with the new capabilities
+		if err := p.setupProxyHandlers(p.ctx, initResult); err != nil {
+			logrus.WithError(err).Error("Failed to setup proxy handlers on reconnect")
+			continue
+		}
+
+		logrus.Info("SingleProxy: handlers updated successfully")
 	}
-	logrus.Info("SingleProxy.OnConnected completed successfully")
-	return nil
 }
 
 // clearHandlers removes all tools, resources, resource templates, and prompts from the MCP server
@@ -259,17 +275,6 @@ func (p *SingleProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.authenticator.Middleware(p.httpHandler).ServeHTTP(w, r)
 }
 
-// multiProxyClientListener is a helper that implements ConnectionListener for MultiProxy
-type multiProxyClientListener struct {
-	proxy      *MultiProxy
-	clientName string
-	prefix     string
-}
-
-func (l *multiProxyClientListener) OnConnected(initResult *mcp.InitializeResult) error {
-	return l.proxy.onClientConnected(l.clientName, l.prefix, initResult)
-}
-
 // MultiProxy acts as a bridge between multiple MCP clients and a single server endpoint
 type MultiProxy struct {
 	transport              string
@@ -335,19 +340,12 @@ func (p *MultiProxy) Init(ctx context.Context) error {
 		return fmt.Errorf("unsupported transport: %s (must be 'streamablehttp')", p.transport)
 	}
 
-	// Register this proxy as a listener for each client and set up initial handlers
+	// Set up initial handlers and start watching for connection events for each client
 	for _, mcpConfig := range p.mcps {
 		client, ok := p.clients[mcpConfig.Name]
 		if !ok {
 			return fmt.Errorf("client not found for mcp config: %s", mcpConfig.Name)
 		}
-
-		// Register as listener
-		client.AddListener(&multiProxyClientListener{
-			proxy:      p,
-			clientName: mcpConfig.Name,
-			prefix:     mcpConfig.Prefix,
-		})
 
 		// If client is already connected, set up handlers immediately
 		if initResult := client.GetInitResult(); initResult != nil {
@@ -355,24 +353,50 @@ func (p *MultiProxy) Init(ctx context.Context) error {
 				return fmt.Errorf("failed to setup proxy handlers for client %s: %w", mcpConfig.Name, err)
 			}
 		}
+
+		// Start a goroutine to watch for connection/reconnection events
+		go p.watchClientConnectionEvents(ctx, mcpConfig.Name, mcpConfig.Prefix)
 	}
 
 	return nil
 }
 
-// onClientConnected is called when a client connects or reconnects
-func (p *MultiProxy) onClientConnected(clientName, prefix string, initResult *mcp.InitializeResult) error {
-	// Clear handlers for this specific client
-	p.clearClientHandlers(clientName)
-
-	// Get the client
+// watchClientConnectionEvents monitors a specific client for connection/reconnection events
+// and updates the proxy handlers accordingly
+func (p *MultiProxy) watchClientConnectionEvents(ctx context.Context, clientName, prefix string) {
 	client, ok := p.clients[clientName]
 	if !ok {
-		return fmt.Errorf("client not found: %s", clientName)
+		logrus.Errorf("MultiProxy: client not found: %s", clientName)
+		return
 	}
 
-	// Set up handlers with the new capabilities
-	return p.setupProxyHandlers(p.ctx, client, initResult, clientName, prefix)
+	for {
+		// Wait for the next connection event
+		if err := client.WaitForConnection(ctx); err != nil {
+			// Context cancelled or closed
+			return
+		}
+
+		logrus.Infof("MultiProxy: client %s connected/reconnected - updating handlers", clientName)
+
+		// Clear handlers for this specific client
+		p.clearClientHandlers(clientName)
+
+		// Get the new initialization result
+		initResult := client.GetInitResult()
+		if initResult == nil {
+			logrus.Warnf("MultiProxy: got connection event for client %s but initResult is nil", clientName)
+			continue
+		}
+
+		// Set up handlers with the new capabilities
+		if err := p.setupProxyHandlers(p.ctx, client, initResult, clientName, prefix); err != nil {
+			logrus.WithError(err).Errorf("Failed to setup proxy handlers for client %s on reconnect", clientName)
+			continue
+		}
+
+		logrus.Infof("MultiProxy: handlers updated successfully for client %s", clientName)
+	}
 }
 
 // clearClientHandlers removes all handlers for a specific client
