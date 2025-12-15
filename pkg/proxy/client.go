@@ -15,6 +15,33 @@ import (
 
 var ErrDisconnected = errors.New("client is disconnected")
 
+// EventType represents the type of client event
+type EventType int
+
+const (
+	EventConnected EventType = iota
+	EventDisconnected
+)
+
+// String returns the string representation of the EventType
+func (et EventType) String() string {
+	switch et {
+	case EventConnected:
+		return "Connected"
+	case EventDisconnected:
+		return "Disconnected"
+	default:
+		return "Unknown"
+	}
+}
+
+// ClientEvent represents a client state change event
+type ClientEvent struct {
+	Type      EventType
+	Timestamp time.Time
+	Error     error // Only set for Disconnected events
+}
+
 // bearerAuthTransport wraps an http.RoundTripper to add Bearer token authorization
 type bearerAuthTransport struct {
 	wrapped http.RoundTripper
@@ -38,7 +65,8 @@ type Client struct {
 	lastError   error
 	errorCh     chan struct{}
 	cancel      context.CancelFunc
-	connectedCh chan struct{}
+	eventCh     chan ClientEvent
+	lastEvent   ClientEvent
 	log         *logrus.Entry
 }
 
@@ -56,10 +84,11 @@ func NewClient(cfg MCPConfig) *Client {
 	})
 
 	s := &Client{
-		cfg:         cfg,
-		errorCh:     make(chan struct{}),
-		connectedCh: make(chan struct{}),
-		log:         log,
+		cfg:       cfg,
+		errorCh:   make(chan struct{}),
+		eventCh:   make(chan ClientEvent),
+		lastEvent: ClientEvent{},
+		log:       log,
 	}
 
 	return s
@@ -69,6 +98,19 @@ func (cs *Client) GetInitResult() *mcp.InitializeResult {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
 	return cs.initResult
+}
+
+// GetLastEvent returns the last event that occurred
+// Returns nil if no events have occurred yet
+func (cs *Client) GetLastEvent() *ClientEvent {
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+	if cs.lastEvent.Type == 0 && cs.lastEvent.Timestamp.IsZero() {
+		return nil
+	}
+	// Return copy to prevent external mutation
+	event := cs.lastEvent
+	return &event
 }
 
 func (cs *Client) IsConnected() bool {
@@ -142,8 +184,17 @@ func (cs *Client) init(ctx context.Context) error {
 	cs.isConnected = true
 	cs.isClosed = false
 
-	// Close the connected channel to wake up all waiting goroutines
-	close(cs.connectedCh)
+	// Broadcast Connected event
+	cs.lastEvent = ClientEvent{
+		Type:      EventConnected,
+		Timestamp: time.Now(),
+		Error:     nil,
+	}
+	// Close the existing event channel to wake up all waiting goroutines
+	close(cs.eventCh)
+	// Create a new channel immediately for the next event
+	// This prevents subsequent WaitForEvent calls from returning immediately
+	cs.eventCh = make(chan ClientEvent)
 	cs.mutex.Unlock()
 
 	return nil
@@ -212,21 +263,61 @@ func (cs *Client) Close() error {
 	return nil
 }
 
-func (cs *Client) WaitForConnection(ctx context.Context) error {
-	cs.mutex.Lock()
-	if cs.isConnected {
-		cs.mutex.Unlock()
-		return nil
+// WaitForEvent waits for a client event matching the specified types
+// If no eventTypes are provided, waits for any event
+// Returns the event that occurred or an error if context is canceled
+func (cs *Client) WaitForEvent(ctx context.Context, eventTypes ...EventType) (*ClientEvent, error) {
+	// If no types specified, accept any event
+	if len(eventTypes) == 0 {
+		eventTypes = []EventType{EventConnected, EventDisconnected}
 	}
-	connectedCh := cs.connectedCh
+
+	// Helper function to check if event type matches filter
+	matchesFilter := func(eventType EventType) bool {
+		for _, t := range eventTypes {
+			if t == eventType {
+				return true
+			}
+		}
+		return false
+	}
+
+	cs.mutex.Lock()
+	// Get the current event channel to watch
+	eventCh := cs.eventCh
 	cs.mutex.Unlock()
 
+	// Wait for either context cancellation or next event
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("context exceeded")
-	case <-connectedCh:
+		return nil, fmt.Errorf("context exceeded")
+	case <-eventCh:
+		// Event channel was closed, meaning a new event occurred
+		// Retrieve the new event with mutex protection
+		cs.mutex.Lock()
+		newEvent := cs.lastEvent
+		cs.mutex.Unlock()
+
+		// Check if the event matches our filter
+		if matchesFilter(newEvent.Type) {
+			return &newEvent, nil
+		}
+
+		// Event doesn't match filter, recursively wait for next event
+		// This handles rapid connect/disconnect cycles
+		return cs.WaitForEvent(ctx, eventTypes...)
+	}
+}
+
+// WaitForConnection waits for the client to connect
+// This is a convenience wrapper around WaitForEvent that only waits for Connected events
+// Maintains backward compatibility with existing code
+func (cs *Client) WaitForConnection(ctx context.Context) error {
+	if cs.IsConnected() {
 		return nil
 	}
+	_, err := cs.WaitForEvent(ctx, EventConnected)
+	return err
 }
 
 func (cs *Client) getSession() *mcp.ClientSession {
@@ -329,9 +420,17 @@ func (cs *Client) setDisconnected(session *mcp.ClientSession, err error) {
 	cs.isConnected = false
 	cs.lastError = err
 
-	// Create a new channel for the next connection
-	cs.connectedCh = make(chan struct{})
+	// Broadcast Disconnected event
+	cs.lastEvent = ClientEvent{
+		Type:      EventDisconnected,
+		Timestamp: time.Now(),
+		Error:     err,
+	}
+	close(cs.eventCh) // Close to wake up all waiting goroutines
+	// Create a new channel immediately for the next event
+	cs.eventCh = make(chan ClientEvent)
 
+	// Keep errorCh signal for reconnection loop
 	select {
 	case cs.errorCh <- struct{}{}:
 	default:

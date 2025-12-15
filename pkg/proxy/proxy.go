@@ -87,30 +87,43 @@ func (p *SingleProxy) Init(ctx context.Context) error {
 func (p *SingleProxy) watchConnectionEvents(ctx context.Context) {
 	for {
 		// Wait for the next connection event
-		if err := p.client.WaitForConnection(ctx); err != nil {
-			// Context cancelled or closed
+		event, err := p.client.WaitForEvent(ctx)
+		if err != nil {
+			// Context canceled or closed
 			return
 		}
 
 		logrus.Info("SingleProxy: client connected/reconnected - updating handlers")
 
-		// Clear all existing handlers before registering new ones
-		p.clearHandlers()
+		switch event.Type {
+		case EventConnected:
+			// Clear all existing handlers before registering new ones
+			p.clearHandlers()
 
-		// Get the new initialization result
-		initResult := p.client.GetInitResult()
-		if initResult == nil {
-			logrus.Warn("SingleProxy: got connection event but initResult is nil")
-			continue
+			// Get the new initialization result
+			initResult := p.client.GetInitResult()
+			if initResult == nil {
+				logrus.Warn("SingleProxy: got connection event but initResult is nil")
+				continue
+			}
+
+			// Set up handlers with the new capabilities
+			if err := p.setupProxyHandlers(p.ctx, initResult); err != nil {
+				logrus.WithError(err).Error("Failed to setup proxy handlers on reconnect")
+				continue
+			}
+
+			logrus.Info("SingleProxy: handlers updated successfully")
+		default:
+			continue //TODO: handle other connection events
 		}
 
-		// Set up handlers with the new capabilities
-		if err := p.setupProxyHandlers(p.ctx, initResult); err != nil {
-			logrus.WithError(err).Error("Failed to setup proxy handlers on reconnect")
+		// Check if another event occurred during processing
+		// If so, handle it immediately instead of blocking on WaitForEvent
+		if lastEvent := p.client.GetLastEvent(); lastEvent != nil && !lastEvent.Timestamp.Equal(event.Timestamp) {
+			logrus.Debug("SingleProxy: new event detected during processing, handling immediately")
 			continue
 		}
-
-		logrus.Info("SingleProxy: handlers updated successfully")
 	}
 }
 
@@ -372,30 +385,44 @@ func (p *MultiProxy) watchClientConnectionEvents(ctx context.Context, clientName
 
 	for {
 		// Wait for the next connection event
-		if err := client.WaitForConnection(ctx); err != nil {
+		event, err := client.WaitForEvent(ctx)
+		if err != nil {
 			// Context cancelled or closed
 			return
 		}
 
-		logrus.Infof("MultiProxy: client %s connected/reconnected - updating handlers", clientName)
+		switch event.Type {
+		case EventConnected:
+			logrus.Infof("MultiProxy: client %s connected/reconnected - updating handlers", clientName)
 
-		// Clear handlers for this specific client
-		p.clearClientHandlers(clientName)
+			// Clear handlers for this specific client
+			p.clearClientHandlers(clientName)
 
-		// Get the new initialization result
-		initResult := client.GetInitResult()
-		if initResult == nil {
-			logrus.Warnf("MultiProxy: got connection event for client %s but initResult is nil", clientName)
-			continue
+			// Get the new initialization result
+			initResult := client.GetInitResult()
+			if initResult == nil {
+				logrus.Warnf("MultiProxy: got connection event for client %s but initResult is nil", clientName)
+				continue
+			}
+
+			// Set up handlers with the new capabilities
+			if err := p.setupProxyHandlers(p.ctx, client, initResult, clientName, prefix); err != nil {
+				logrus.WithError(err).Errorf("Failed to setup proxy handlers for client %s on reconnect", clientName)
+				continue
+			}
+
+			logrus.Infof("MultiProxy: handlers updated successfully for client %s", clientName)
+
+		default:
+			continue //TODO: handle other event types
 		}
 
-		// Set up handlers with the new capabilities
-		if err := p.setupProxyHandlers(p.ctx, client, initResult, clientName, prefix); err != nil {
-			logrus.WithError(err).Errorf("Failed to setup proxy handlers for client %s on reconnect", clientName)
+		// Check if another event occurred during processing
+		// If so, handle it immediately instead of blocking on WaitForEvent
+		if lastEvent := client.GetLastEvent(); lastEvent != nil && !lastEvent.Timestamp.Equal(event.Timestamp) {
+			logrus.Debugf("MultiProxy: new event detected for client %s during processing, handling immediately", clientName)
 			continue
 		}
-
-		logrus.Infof("MultiProxy: handlers updated successfully for client %s", clientName)
 	}
 }
 
