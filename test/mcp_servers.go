@@ -21,14 +21,15 @@ type MCPTestServer interface {
 
 // MCPCalculator implements a simple calculator MCP server
 type MCPCalculator struct {
+	server *mcp.Server
 }
 
 var _ MCPTestServer = (*MCPCalculator)(nil)
 
 func (m *MCPCalculator) GetHTTPHandler() (http.Handler, error) {
-	s := m.createMCPServer()
+	m.server = m.createMCPServer()
 	httpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
-		return s
+		return m.server
 	}, nil)
 	return httpHandler, nil
 }
@@ -45,20 +46,9 @@ type CalculatorOutput struct {
 	Result float64 `json:"result" jsonschema:"The calculation result"`
 }
 
-func (m *MCPCalculator) createMCPServer() *mcp.Server {
-	// Create a new MCP server
-	s := mcp.NewServer(&mcp.Implementation{
-		Name:    "Calculator Demo",
-		Version: "1.0.0",
-	}, nil)
-
-	// Add the calculator tool using the typed handler
-	calculatorTool := &mcp.Tool{
-		Name:        "calculate",
-		Description: "Perform basic arithmetic operations",
-	}
-
-	mcp.AddTool(s, calculatorTool, func(ctx context.Context, request *mcp.CallToolRequest, input CalculatorInput) (*mcp.CallToolResult, CalculatorOutput, error) {
+// calculatorHandler returns the calculator tool handler function
+func (m *MCPCalculator) calculatorHandler() func(ctx context.Context, request *mcp.CallToolRequest, input CalculatorInput) (*mcp.CallToolResult, CalculatorOutput, error) {
+	return func(ctx context.Context, request *mcp.CallToolRequest, input CalculatorInput) (*mcp.CallToolResult, CalculatorOutput, error) {
 		var result float64
 		switch input.Operation {
 		case "add":
@@ -97,9 +87,47 @@ func (m *MCPCalculator) createMCPServer() *mcp.Server {
 				},
 			},
 		}, CalculatorOutput{Result: result}, nil
-	})
+	}
+}
+
+func (m *MCPCalculator) createMCPServer() *mcp.Server {
+	// Create a new MCP server
+	s := mcp.NewServer(&mcp.Implementation{
+		Name:    "Calculator Demo",
+		Version: "1.0.0",
+	}, nil)
+
+	// Add the calculator tool using the typed handler
+	calculatorTool := &mcp.Tool{
+		Name:        "calculate",
+		Description: "Perform basic arithmetic operations",
+	}
+
+	mcp.AddTool(s, calculatorTool, m.calculatorHandler())
 
 	return s
+}
+
+// RenameCalculateToCount removes the "calculate" tool and adds a "count" tool with the same functionality
+// This triggers a tools/list_changed notification
+func (m *MCPCalculator) RenameCalculateToCount(ctx context.Context) error {
+	if m.server == nil {
+		return fmt.Errorf("server not initialized")
+	}
+
+	// Remove the old "calculate" tool (automatically emits notification)
+	m.server.RemoveTools("calculate")
+
+	// Add the new "count" tool with the same handler (automatically emits notification)
+	countTool := &mcp.Tool{
+		Name:        "count",
+		Description: "Perform basic arithmetic operations",
+	}
+
+	mcp.AddTool(m.server, countTool, m.calculatorHandler())
+
+	// Note: AddTool and RemoveTools automatically emit notifications
+	return nil
 }
 
 func (m *MCPCalculator) RunServer() error {

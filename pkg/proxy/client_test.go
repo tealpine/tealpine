@@ -417,3 +417,72 @@ func TestClientWithoutBearerToken(t *testing.T) {
 		t.Fatalf("Failed to close client: %v", err)
 	}
 }
+
+func TestClientToolsListChangedEvent(t *testing.T) {
+	// Create a test MCP server that can send notifications
+	calcServer := &mcptest.MCPCalculator{}
+	handler, err := calcServer.GetHTTPHandler()
+	require.NoError(t, err, "Failed to get HTTP handler")
+
+	testServer := httptest.NewServer(handler)
+	defer testServer.Close()
+
+	// Create client configuration
+	config := MCPConfig{
+		Name:      "notification-test",
+		Transport: "streamablehttp",
+		URL:       testServer.URL + "/mcp",
+	}
+
+	// Create and start the client
+	client := NewClient(config)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client.Start(ctx)
+	err = client.WaitForConnection(ctx)
+	require.NoError(t, err, "Failed to connect client")
+	defer client.Close()
+
+	// Wait a bit to ensure the client is fully initialized
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify initial tool is "calculate"
+	tools, err := client.ListTools(ctx, &mcp.ListToolsParams{})
+	require.NoError(t, err, "Failed to list tools")
+	require.Len(t, tools.Tools, 1, "Should have exactly one tool")
+	require.Equal(t, "calculate", tools.Tools[0].Name, "Initial tool should be 'calculate'")
+
+	// Create a goroutine to wait for the tools list changed event
+	eventReceived := make(chan *ClientEvent, 1)
+	go func() {
+		event, err := client.WaitForEvent(ctx, EventToolsListChanged)
+		if err == nil && event != nil {
+			eventReceived <- event
+		}
+	}()
+
+	// Rename the tool from "calculate" to "count" which triggers a notification
+	err = calcServer.RenameCalculateToCount(ctx)
+	require.NoError(t, err, "Failed to rename tool")
+
+	// Wait for the event with timeout
+	select {
+	case event := <-eventReceived:
+		require.NotNil(t, event, "Event should not be nil")
+		require.Equal(t, EventToolsListChanged, event.Type, "Should receive EventToolsListChanged")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for EventToolsListChanged")
+	}
+
+	// Verify the last event is EventToolsListChanged
+	lastEvent := client.GetLastEvent()
+	require.NotNil(t, lastEvent, "Last event should not be nil")
+	require.Equal(t, EventToolsListChanged, lastEvent.Type, "Last event should be EventToolsListChanged")
+
+	// Verify the tool is now "count"
+	tools, err = client.ListTools(ctx, &mcp.ListToolsParams{})
+	require.NoError(t, err, "Failed to list tools after rename")
+	require.Len(t, tools.Tools, 1, "Should still have exactly one tool")
+	require.Equal(t, "count", tools.Tools[0].Name, "Tool should now be 'count'")
+}

@@ -21,6 +21,10 @@ type EventType int
 const (
 	EventConnected EventType = iota
 	EventDisconnected
+	EventToolsListChanged
+	EventResourcesListChanged
+	EventPromptsListChanged
+	EventResourceTemplatesListChanged
 )
 
 // String returns the string representation of the EventType
@@ -30,6 +34,14 @@ func (et EventType) String() string {
 		return "Connected"
 	case EventDisconnected:
 		return "Disconnected"
+	case EventToolsListChanged:
+		return "ToolsListChanged"
+	case EventResourcesListChanged:
+		return "ResourcesListChanged"
+	case EventPromptsListChanged:
+		return "PromptsListChanged"
+	case EventResourceTemplatesListChanged:
+		return "ResourceTemplatesListChanged"
 	default:
 		return "Unknown"
 	}
@@ -134,7 +146,32 @@ func (cs *Client) init(ctx context.Context) error {
 		cs.client = mcp.NewClient(&mcp.Implementation{
 			Name:    "mcp-auth-proxy-upstream-client",
 			Version: "1.0.0",
-		}, nil)
+		}, &mcp.ClientOptions{
+			ToolListChangedHandler: func(ctx context.Context, req *mcp.ToolListChangedRequest) {
+				cs.log.Debugf("Received tools/list_changed notification")
+				cs.emitEvent(ClientEvent{
+					Type:      EventToolsListChanged,
+					Timestamp: time.Now(),
+					Error:     nil,
+				})
+			},
+			ResourceListChangedHandler: func(ctx context.Context, req *mcp.ResourceListChangedRequest) {
+				cs.log.Debugf("Received resources/list_changed notification")
+				cs.emitEvent(ClientEvent{
+					Type:      EventResourcesListChanged,
+					Timestamp: time.Now(),
+					Error:     nil,
+				})
+			},
+			PromptListChangedHandler: func(ctx context.Context, req *mcp.PromptListChangedRequest) {
+				cs.log.Debugf("Received prompts/list_changed notification")
+				cs.emitEvent(ClientEvent{
+					Type:      EventPromptsListChanged,
+					Timestamp: time.Now(),
+					Error:     nil,
+				})
+			},
+		})
 	}
 
 	// Create transport based on config
@@ -183,21 +220,30 @@ func (cs *Client) init(ctx context.Context) error {
 	cs.session = session
 	cs.isConnected = true
 	cs.isClosed = false
+	cs.mutex.Unlock()
 
 	// Broadcast Connected event
-	cs.lastEvent = ClientEvent{
+	cs.emitEvent(ClientEvent{
 		Type:      EventConnected,
 		Timestamp: time.Now(),
 		Error:     nil,
-	}
-	// Close the existing event channel to wake up all waiting goroutines
-	close(cs.eventCh)
-	// Create a new channel immediately for the next event
-	// This prevents subsequent WaitForEvent calls from returning immediately
-	cs.eventCh = make(chan ClientEvent)
-	cs.mutex.Unlock()
+	})
 
 	return nil
+}
+
+// emitEvent broadcasts an event to all waiting goroutines
+func (cs *Client) emitEvent(event ClientEvent) {
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+	cs.emitEventLocked(event)
+}
+
+// emitEventLocked broadcasts an event (assumes mutex is already locked)
+func (cs *Client) emitEventLocked(event ClientEvent) {
+	cs.lastEvent = event
+	close(cs.eventCh)
+	cs.eventCh = make(chan ClientEvent)
 }
 
 func (cs *Client) CallTool(
@@ -269,7 +315,14 @@ func (cs *Client) Close() error {
 func (cs *Client) WaitForEvent(ctx context.Context, eventTypes ...EventType) (*ClientEvent, error) {
 	// If no types specified, accept any event
 	if len(eventTypes) == 0 {
-		eventTypes = []EventType{EventConnected, EventDisconnected}
+		eventTypes = []EventType{
+			EventConnected,
+			EventDisconnected,
+			EventToolsListChanged,
+			EventResourcesListChanged,
+			EventPromptsListChanged,
+			EventResourceTemplatesListChanged,
+		}
 	}
 
 	// Helper function to check if event type matches filter
@@ -421,14 +474,11 @@ func (cs *Client) setDisconnected(session *mcp.ClientSession, err error) {
 	cs.lastError = err
 
 	// Broadcast Disconnected event
-	cs.lastEvent = ClientEvent{
+	cs.emitEventLocked(ClientEvent{
 		Type:      EventDisconnected,
 		Timestamp: time.Now(),
 		Error:     err,
-	}
-	close(cs.eventCh) // Close to wake up all waiting goroutines
-	// Create a new channel immediately for the next event
-	cs.eventCh = make(chan ClientEvent)
+	})
 
 	// Keep errorCh signal for reconnection loop
 	select {

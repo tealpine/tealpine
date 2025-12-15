@@ -260,6 +260,36 @@ func setupProxyHandlersWithStrategy(
 	return nil
 }
 
+// watchClientEvents is a generic event watcher that monitors a client for events
+// and calls the refresh handler for relevant event types
+func watchClientEvents(ctx context.Context, client *Client, refreshHandler func(EventType) error) {
+	for {
+		// Wait for the next event
+		event, err := client.WaitForEvent(ctx)
+		if err != nil {
+			// Context canceled or closed
+			return
+		}
+
+		switch event.Type {
+		case EventConnected, EventToolsListChanged, EventResourcesListChanged, EventPromptsListChanged, EventResourceTemplatesListChanged:
+			if err := refreshHandler(event.Type); err != nil {
+				logrus.WithError(err).Errorf("Failed to refresh handlers after %s", event.Type.String())
+				continue
+			}
+		default:
+			continue
+		}
+
+		// Check if another event occurred during processing
+		// If so, handle it immediately instead of blocking on WaitForEvent
+		if lastEvent := client.GetLastEvent(); lastEvent != nil && !lastEvent.Timestamp.Equal(event.Timestamp) {
+			logrus.Debug("New event detected during processing, handling immediately")
+			continue
+		}
+	}
+}
+
 // singleProxyNamingStrategy implements HandlerNamingStrategy for SingleProxy (no transformation)
 type singleProxyNamingStrategy struct{}
 
@@ -350,46 +380,9 @@ func (p *SingleProxy) Init(ctx context.Context) error {
 // watchConnectionEvents monitors the client for connection/reconnection events
 // and updates the proxy handlers accordingly
 func (p *SingleProxy) watchConnectionEvents(ctx context.Context) {
-	for {
-		// Wait for the next connection event
-		event, err := p.client.WaitForEvent(ctx)
-		if err != nil {
-			// Context canceled or closed
-			return
-		}
-
-		logrus.Info("SingleProxy: client connected/reconnected - updating handlers")
-
-		switch event.Type {
-		case EventConnected:
-			// Clear all existing handlers before registering new ones
-			p.clearHandlers()
-
-			// Get the new initialization result
-			initResult := p.client.GetInitResult()
-			if initResult == nil {
-				logrus.Warn("SingleProxy: got connection event but initResult is nil")
-				continue
-			}
-
-			// Set up handlers with the new capabilities
-			if err := p.setupProxyHandlers(p.ctx, initResult); err != nil {
-				logrus.WithError(err).Error("Failed to setup proxy handlers on reconnect")
-				continue
-			}
-
-			logrus.Info("SingleProxy: handlers updated successfully")
-		default:
-			continue //TODO: handle other connection events
-		}
-
-		// Check if another event occurred during processing
-		// If so, handle it immediately instead of blocking on WaitForEvent
-		if lastEvent := p.client.GetLastEvent(); lastEvent != nil && !lastEvent.Timestamp.Equal(event.Timestamp) {
-			logrus.Debug("SingleProxy: new event detected during processing, handling immediately")
-			continue
-		}
-	}
+	watchClientEvents(ctx, p.client, func(eventType EventType) error {
+		return p.refreshHandlers(p.ctx, eventType)
+	})
 }
 
 // clearHandlers removes all tools, resources, resource templates, and prompts from the MCP server
@@ -400,6 +393,28 @@ func (p *SingleProxy) clearHandlers() {
 // setupProxyHandlers configures the MCP server to forward all requests to the upstream client
 func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mcp.InitializeResult) error {
 	return setupProxyHandlersWithStrategy(ctx, p.mcpServer, p.client, initResult, p.naming, p)
+}
+
+// refreshHandlers clears and re-registers all handlers for this proxy
+func (p *SingleProxy) refreshHandlers(ctx context.Context, eventType EventType) error {
+	logrus.Infof("SingleProxy: %s - refreshing handlers", eventType.String())
+
+	// Clear all existing handlers
+	p.clearHandlers()
+
+	// Get the current initialization result
+	initResult := p.client.GetInitResult()
+	if initResult == nil {
+		return fmt.Errorf("initResult is nil")
+	}
+
+	// Set up handlers with the updated capabilities
+	if err := p.setupProxyHandlers(ctx, initResult); err != nil {
+		return fmt.Errorf("failed to setup handlers: %w", err)
+	}
+
+	logrus.Infof("SingleProxy: handlers refreshed successfully after %s", eventType.String())
+	return nil
 }
 
 // ==================== MultiProxy Strategy Implementations ====================
@@ -591,47 +606,9 @@ func (p *MultiProxy) watchClientConnectionEvents(ctx context.Context, clientName
 		return
 	}
 
-	for {
-		// Wait for the next connection event
-		event, err := client.WaitForEvent(ctx)
-		if err != nil {
-			// Context canceled or closed
-			return
-		}
-
-		switch event.Type {
-		case EventConnected:
-			logrus.Infof("MultiProxy: client %s connected/reconnected - updating handlers", clientName)
-
-			// Clear handlers for this specific client
-			p.clearClientHandlers(clientName)
-
-			// Get the new initialization result
-			initResult := client.GetInitResult()
-			if initResult == nil {
-				logrus.Warnf("MultiProxy: got connection event for client %s but initResult is nil", clientName)
-				continue
-			}
-
-			// Set up handlers with the new capabilities
-			if err := p.setupProxyHandlers(p.ctx, client, initResult, clientName, prefix); err != nil {
-				logrus.WithError(err).Errorf("Failed to setup proxy handlers for client %s on reconnect", clientName)
-				continue
-			}
-
-			logrus.Infof("MultiProxy: handlers updated successfully for client %s", clientName)
-
-		default:
-			continue //TODO: handle other event types
-		}
-
-		// Check if another event occurred during processing
-		// If so, handle it immediately instead of blocking on WaitForEvent
-		if lastEvent := client.GetLastEvent(); lastEvent != nil && !lastEvent.Timestamp.Equal(event.Timestamp) {
-			logrus.Debugf("MultiProxy: new event detected for client %s during processing, handling immediately", clientName)
-			continue
-		}
-	}
+	watchClientEvents(ctx, client, func(eventType EventType) error {
+		return p.refreshHandlers(p.ctx, client, clientName, prefix, eventType)
+	})
 }
 
 // clearClientHandlers removes all handlers for a specific client
@@ -674,4 +651,26 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 	}
 
 	return setupProxyHandlersWithStrategy(ctx, p.mcpServer, client, initResult, naming, registry)
+}
+
+// refreshHandlers clears and re-registers all handlers for a specific client
+func (p *MultiProxy) refreshHandlers(ctx context.Context, client *Client, clientName, prefix string, eventType EventType) error {
+	logrus.Infof("MultiProxy: client %s - %s - refreshing handlers", clientName, eventType.String())
+
+	// Clear handlers for this specific client
+	p.clearClientHandlers(clientName)
+
+	// Get the current initialization result
+	initResult := client.GetInitResult()
+	if initResult == nil {
+		return fmt.Errorf("initResult is nil")
+	}
+
+	// Set up handlers with the updated capabilities
+	if err := p.setupProxyHandlers(ctx, client, initResult, clientName, prefix); err != nil {
+		return fmt.Errorf("failed to setup handlers: %w", err)
+	}
+
+	logrus.Infof("MultiProxy: client %s - handlers refreshed successfully after %s", clientName, eventType.String())
+	return nil
 }

@@ -372,6 +372,89 @@ func TestServer(t *testing.T) {
 		require.Equal(t, "Hello, Final Test!", result.Content[0].(*mcp.TextContent).Text)
 	})
 
+	// Test MultiProxy with upstream tools list changed notification
+	t.Run("MultiProxy_UpstreamChangedTools", func(t *testing.T) {
+		// Track if we received tools/list_changed notification
+		toolsListChanged := make(chan struct{}, 1)
+
+		client := mcp.NewClient(&mcp.Implementation{
+			Name:    "test-multi-notification-client",
+			Version: "1.0.0",
+		}, &mcp.ClientOptions{
+			ToolListChangedHandler: func(ctx context.Context, req *mcp.ToolListChangedRequest) {
+				t.Log("Received tools/list_changed notification")
+				select {
+				case toolsListChanged <- struct{}{}:
+				default:
+				}
+			},
+		})
+
+		transport := &mcp.StreamableClientTransport{
+			Endpoint: "http://" + serverAddr + "/multi/mcp",
+			HTTPClient: &http.Client{
+				Transport: &bearerAuthTransport{
+					wrapped: http.DefaultTransport,
+					bearer:  "test-user-token",
+				},
+			},
+		}
+
+		session, err := client.Connect(ctx, transport, nil)
+		require.NoError(t, err)
+		defer session.Close()
+
+		// 1. List initial tools - should see calc_calculate
+		toolsResult, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+		require.NoError(t, err)
+		require.Len(t, toolsResult.Tools, 4)
+		toolNames := make(map[string]bool)
+		for _, tool := range toolsResult.Tools {
+			println("A", tool.Name)
+			toolNames[tool.Name] = true
+		}
+		require.True(t, toolNames["calc_calculate"], "Should have calc_calculate tool initially")
+		require.False(t, toolNames["calc_count"], "Should not have calc_count tool initially")
+
+		// 2. Rename the tool (this will trigger tools/list_changed notification)
+		err = calcServer.RenameCalculateToCount(ctx)
+		require.NoError(t, err)
+		time.Sleep(100 * time.Millisecond)
+
+		// 3. Wait for tools/list_changed notification
+		select {
+		case <-toolsListChanged:
+			t.Log("Successfully received tools/list_changed notification")
+		case <-time.After(3 * time.Second):
+			t.Fatal("Timeout waiting for tools/list_changed notification")
+		}
+
+		// 4. List tools again - should see calc_count instead of calc_calculate
+		toolsResult, err = session.ListTools(ctx, &mcp.ListToolsParams{})
+		require.NoError(t, err)
+		require.Len(t, toolsResult.Tools, 4)
+		toolNames = make(map[string]bool)
+		for _, tool := range toolsResult.Tools {
+			println("B", tool.Name)
+			toolNames[tool.Name] = true
+		}
+		require.False(t, toolNames["calc_calculate"], "Should not have calc_calculate tool after rename")
+		require.True(t, toolNames["calc_count"], "Should have calc_count tool after rename")
+
+		// 5. Call the new tool to verify it works
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "calc_count",
+			Arguments: map[string]interface{}{
+				"operation": "multiply",
+				"x":         6,
+				"y":         7,
+			},
+		})
+		require.NoError(t, err)
+		require.False(t, result.IsError)
+		require.Equal(t, "42.00", result.Content[0].(*mcp.TextContent).Text)
+	})
+
 }
 
 func TestServerWithUpstreamServerRestart(t *testing.T) {
