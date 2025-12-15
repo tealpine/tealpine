@@ -47,7 +47,8 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create proxy
-	proxy := NewSingleProxy("streamablehttp", upstreamClient, "", authenticator, authorizer)
+	proxy, err := NewSingleProxy("streamablehttp", upstreamClient, "", authenticator, authorizer)
+	require.NoError(t, err)
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 
@@ -118,7 +119,8 @@ func TestProxyStreamableHttpTemperature(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create proxy
-	proxy := NewSingleProxy("streamablehttp", upstreamClient, "", authenticator, authorizer)
+	proxy, err := NewSingleProxy("streamablehttp", upstreamClient, "", authenticator, authorizer)
+	require.NoError(t, err)
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 
@@ -237,7 +239,8 @@ func TestMultiProxy(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. Create MultiProxy
-	proxy := NewMultiProxy("streamablehttp", clients, multiProxyConfig, "", authenticator, authorizer)
+	proxy, err := NewMultiProxy("streamablehttp", clients, multiProxyConfig, "", authenticator, authorizer)
+	require.NoError(t, err)
 	err = proxy.Init(ctx)
 	require.NoError(t, err)
 

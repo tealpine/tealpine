@@ -69,13 +69,19 @@ func (s *Server) Init(ctx context.Context) error {
 			if !ok {
 				return fmt.Errorf("client not found for proxy %s: %s", name, proxyConfig.MCP)
 			}
-			singleProxy := NewSingleProxy(proxyConfig.Transport, client, proxyConfig.Path, authenticator, authorizer)
+			singleProxy, err := NewSingleProxy(proxyConfig.Transport, client, proxyConfig.Path, authenticator, authorizer)
+			if err != nil {
+				return fmt.Errorf("failed to create single proxy %s: %w", name, err)
+			}
 			if err := singleProxy.Init(ctx); err != nil {
 				return fmt.Errorf("failed to initialize single proxy %s: %w", name, err)
 			}
 			proxy = singleProxy
 		} else if len(proxyConfig.MCPs) > 0 { // Multi Proxy
-			multiProxy := NewMultiProxy(proxyConfig.Transport, s.clients, proxyConfig.MCPs, proxyConfig.Path, authenticator, authorizer)
+			multiProxy, err := NewMultiProxy(proxyConfig.Transport, s.clients, proxyConfig.MCPs, proxyConfig.Path, authenticator, authorizer)
+			if err != nil {
+				return fmt.Errorf("failed to create multi proxy %s: %w", name, err)
+			}
 			if err := multiProxy.Init(ctx); err != nil {
 				return fmt.Errorf("failed to initialize multi proxy %s: %w", name, err)
 			}
