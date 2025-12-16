@@ -1,4 +1,4 @@
-package proxy
+package client
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"mcp-auth-proxy/pkg/config"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
@@ -66,7 +68,7 @@ func (t *bearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, erro
 }
 
 type Client struct {
-	cfg        MCPConfig
+	cfg        config.MCPConfig
 	client     *mcp.Client
 	session    *mcp.ClientSession
 	initResult *mcp.InitializeResult
@@ -82,7 +84,7 @@ type Client struct {
 	log         *logrus.Entry
 }
 
-func NewClient(cfg MCPConfig) *Client {
+func NewClient(cfg config.MCPConfig) *Client {
 	if cfg.PingInterval == 0 {
 		cfg.PingInterval = 30 * time.Second
 	}

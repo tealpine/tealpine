@@ -7,7 +7,8 @@ import (
 	"os"
 
 	"github.com/sirupsen/logrus"
-	"mcp-auth-proxy/pkg/proxy"
+	"mcp-auth-proxy/pkg/config"
+	"mcp-auth-proxy/pkg/server"
 )
 
 func main() {
@@ -32,7 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := proxy.ReadConfig(*configFile)
+	cfg, err := config.ReadConfig(*configFile)
 	if err != nil {
 		logrus.Fatal(err)
 	}
@@ -40,13 +41,13 @@ func main() {
 
 	ctx := context.Background()
 
-	server := proxy.NewServer(cfg)
+	s := server.NewServer(cfg)
 
-	if err = server.Init(ctx); err != nil {
+	if err = s.Init(ctx); err != nil {
 		logrus.Fatal(err)
 	}
 
-	if err := server.Run(); err != nil {
+	if err := s.Run(); err != nil {
 		logrus.Fatal(err)
 	}
 

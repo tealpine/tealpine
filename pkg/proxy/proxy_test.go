@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"mcp-auth-proxy/pkg/auth"
+	"mcp-auth-proxy/pkg/client"
+	"mcp-auth-proxy/pkg/config"
 	mcptest "mcp-auth-proxy/test"
 )
 
@@ -24,14 +26,14 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 	defer upstreamServer.Close()
 
 	// Create upstream client configuration
-	upstreamConfig := MCPConfig{
+	upstreamConfig := config.MCPConfig{
 		Name:      "calculator",
 		Transport: "streamablehttp",
 		URL:       upstreamServer.URL + "/mcp",
 	}
 
 	// Initialize upstream client
-	upstreamClient := NewClient(upstreamConfig)
+	upstreamClient := client.NewClient(upstreamConfig)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -96,14 +98,14 @@ func TestProxyStreamableHttpTemperature(t *testing.T) {
 	defer upstreamServer.Close()
 
 	// Create upstream client configuration
-	upstreamConfig := MCPConfig{
+	upstreamConfig := config.MCPConfig{
 		Name:      "temperature",
 		Transport: "streamablehttp",
 		URL:       upstreamServer.URL + "/mcp",
 	}
 
 	// Initialize upstream client
-	upstreamClient := NewClient(upstreamConfig)
+	upstreamClient := client.NewClient(upstreamConfig)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -178,15 +180,15 @@ func TestMultiProxy(t *testing.T) {
 	// Note: We'll use stdio for hello server as in the original test
 
 	// 2. Create and initialize clients
-	clients := make(map[string]*Client)
+	clients := make(map[string]*client.Client)
 
 	// Calculator client
-	calcConfig := MCPConfig{
+	calcConfig := config.MCPConfig{
 		Name:      "calculator",
 		Transport: "streamablehttp",
 		URL:       calcUpstreamServer.URL + "/mcp",
 	}
-	calcClient := NewClient(calcConfig)
+	calcClient := client.NewClient(calcConfig)
 	calcClient.Start(ctx)
 
 	err = calcClient.WaitForConnection(ctx)
@@ -195,12 +197,12 @@ func TestMultiProxy(t *testing.T) {
 	defer calcClient.Close()
 
 	// Temperature client
-	tempConfig := MCPConfig{
+	tempConfig := config.MCPConfig{
 		Name:      "temperature",
 		Transport: "streamablehttp",
 		URL:       tempUpstreamServer.URL + "/mcp",
 	}
-	tempClient := NewClient(tempConfig)
+	tempClient := client.NewClient(tempConfig)
 	tempClient.Start(ctx)
 	err = tempClient.WaitForConnection(ctx)
 	require.NoError(t, err)
@@ -208,7 +210,7 @@ func TestMultiProxy(t *testing.T) {
 	defer tempClient.Close()
 
 	// Hello client (stdio)
-	helloConfig := MCPConfig{
+	helloConfig := config.MCPConfig{
 		Name:      "hello",
 		Transport: "stdio",
 		Cmd:       "go",
@@ -219,7 +221,7 @@ func TestMultiProxy(t *testing.T) {
 			"server",
 		},
 	}
-	helloClient := NewClient(helloConfig)
+	helloClient := client.NewClient(helloConfig)
 	helloClient.Start(ctx)
 	err = helloClient.WaitForConnection(ctx)
 	require.NoError(t, err)
@@ -227,7 +229,7 @@ func TestMultiProxy(t *testing.T) {
 	defer helloClient.Close()
 
 	// 3. Create multi-proxy config
-	multiProxyConfig := []MultiMCPConfig{
+	multiProxyConfig := []config.MultiMCPConfig{
 		{Name: "calculator", Prefix: "calc"},
 		{Name: "temperature", Prefix: "temp"},
 		{Name: "hello", Prefix: "hello"},

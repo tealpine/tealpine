@@ -14,7 +14,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
-	"mcp-auth-proxy/pkg/proxy"
+	"mcp-auth-proxy/pkg/config"
+	"mcp-auth-proxy/pkg/server"
 )
 
 // bearerAuthTransport wraps an http.RoundTripper to add Bearer token authorization
@@ -57,11 +58,11 @@ func TestServer(t *testing.T) {
 	require.NoError(t, err)
 
 	// 3. Create configuration
-	config := &proxy.Config{
-		Server: proxy.ServerConfig{
+	cfg := &config.Config{
+		Server: config.ServerConfig{
 			Host: serverAddr,
 		},
-		MCP: map[string]proxy.MCPConfig{
+		MCP: map[string]config.MCPConfig{
 			"calculator": {
 				Name:      "calculator",
 				Transport: "streamablehttp",
@@ -86,13 +87,13 @@ func TestServer(t *testing.T) {
 				},
 			},
 		},
-		Proxy: map[string]proxy.ProxyConfig{
+		Proxy: map[string]config.ProxyConfig{
 			"calc": {
 				Name:      "calc",
 				Path:      "calc",
 				Transport: "streamablehttp",
 				MCP:       "calculator",
-				Auth: []proxy.AuthRule{
+				Auth: []config.AuthRule{
 					{
 						User:   "test-user",
 						Method: "tools/list",
@@ -110,7 +111,7 @@ func TestServer(t *testing.T) {
 				Path:      "temp",
 				Transport: "streamablehttp",
 				MCP:       "temperature",
-				Auth: []proxy.AuthRule{
+				Auth: []config.AuthRule{
 					{
 						User:   "test-user",
 						Method: "tools/list",
@@ -128,7 +129,7 @@ func TestServer(t *testing.T) {
 				Path:      "hello",
 				Transport: "streamablehttp",
 				MCP:       "hello",
-				Auth: []proxy.AuthRule{
+				Auth: []config.AuthRule{
 					{
 						Group:  "admins",
 						Method: "tools/list",
@@ -145,12 +146,12 @@ func TestServer(t *testing.T) {
 				Name:      "multi",
 				Path:      "multi",
 				Transport: "streamablehttp",
-				MCPs: []proxy.MultiMCPConfig{
+				MCPs: []config.MultiMCPConfig{
 					{Name: "calculator", Prefix: "calc"},
 					{Name: "temperature", Prefix: "temp"},
 					{Name: "hello", Prefix: "hello"},
 				},
-				Auth: []proxy.AuthRule{
+				Auth: []config.AuthRule{
 					{
 						Group:  "power-users",
 						Method: "tools/list",
@@ -164,7 +165,7 @@ func TestServer(t *testing.T) {
 				},
 			},
 		},
-		Users: map[string]proxy.UserConfig{
+		Users: map[string]config.UserConfig{
 			"test-user": {
 				Token:  "test-user-token",
 				Groups: []string{"admins", "power-users"},
@@ -173,27 +174,27 @@ func TestServer(t *testing.T) {
 	}
 
 	// 4. Create and initialize server
-	server := proxy.NewServer(config)
-	err = server.Init(ctx)
+	s := server.NewServer(cfg)
+	err = s.Init(ctx)
 	require.NoError(t, err)
 
 	// 5. Start server in goroutine
 	serverErrChan := make(chan error, 1)
 	go func() {
-		if err := server.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := s.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrChan <- err
 		}
 	}()
 
 	// Wait for all clients to connect
-	err = server.WaitForClients(ctx)
+	err = s.WaitForClients(ctx)
 	require.NoError(t, err)
 
 	// 6. Ensure server cleanup
 	defer func() {
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer stopCancel()
-		if err := server.Stop(stopCtx); err != nil {
+		if err := s.Stop(stopCtx); err != nil {
 			t.Logf("Error stopping server: %v", err)
 		}
 	}()
@@ -496,11 +497,11 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 	require.NoError(t, err)
 
 	// 3. Create configuration
-	config := &proxy.Config{
-		Server: proxy.ServerConfig{
+	cfg := &config.Config{
+		Server: config.ServerConfig{
 			Host: serverAddr,
 		},
-		MCP: map[string]proxy.MCPConfig{
+		MCP: map[string]config.MCPConfig{
 			"calculator": {
 				Name:           "calculator",
 				Transport:      "streamablehttp",
@@ -510,13 +511,13 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 				PingInterval:   500 * time.Millisecond,
 			},
 		},
-		Proxy: map[string]proxy.ProxyConfig{
+		Proxy: map[string]config.ProxyConfig{
 			"calc": {
 				Name:      "calc",
 				Path:      "calc",
 				Transport: "streamablehttp",
 				MCP:       "calculator",
-				Auth: []proxy.AuthRule{
+				Auth: []config.AuthRule{
 					{
 						User:   "test-user",
 						Method: "tools/call",
@@ -525,7 +526,7 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 				},
 			},
 		},
-		Users: map[string]proxy.UserConfig{
+		Users: map[string]config.UserConfig{
 			"test-user": {
 				Token:  "test-user-token",
 				Groups: []string{},
@@ -534,14 +535,14 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 	}
 
 	// 4. Create and initialize proxy server
-	server := proxy.NewServer(config)
-	err = server.Init(ctx)
+	s := server.NewServer(cfg)
+	err = s.Init(ctx)
 	require.NoError(t, err)
 
 	// 5. Start proxy server in goroutine
 	logrus.Info("Starting proxy server")
 	go func() {
-		if err := server.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := s.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logrus.Errorf("proxy server failed to start: %v", err)
 		}
 	}()
@@ -551,7 +552,7 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 
 	// Ensure proxy server cleanup
 	defer func() {
-		if err := server.Stop(ctx); err != nil {
+		if err := s.Stop(ctx); err != nil {
 			logrus.Errorf("Error stopping server: %v", err)
 		}
 	}()

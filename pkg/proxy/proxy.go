@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"mcp-auth-proxy/pkg/auth"
+	"mcp-auth-proxy/pkg/client"
+	"mcp-auth-proxy/pkg/config"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
@@ -81,11 +83,11 @@ func (p *proxyCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // fetchAllTools fetches all tools from upstream using pagination
-func fetchAllTools(ctx context.Context, client *Client) ([]*mcp.Tool, error) {
+func fetchAllTools(ctx context.Context, c *client.Client) ([]*mcp.Tool, error) {
 	var allTools []*mcp.Tool
 	nextCursor := ""
 	for {
-		toolsResult, err := client.ListTools(ctx, &mcp.ListToolsParams{Cursor: nextCursor})
+		toolsResult, err := c.ListTools(ctx, &mcp.ListToolsParams{Cursor: nextCursor})
 		if err != nil {
 			return nil, fmt.Errorf("failed to list tools from upstream: %w", err)
 		}
@@ -102,11 +104,11 @@ func fetchAllTools(ctx context.Context, client *Client) ([]*mcp.Tool, error) {
 }
 
 // fetchAllResources fetches all resources from upstream using pagination
-func fetchAllResources(ctx context.Context, client *Client) ([]*mcp.Resource, error) {
+func fetchAllResources(ctx context.Context, c *client.Client) ([]*mcp.Resource, error) {
 	var allResources []*mcp.Resource
 	nextCursor := ""
 	for {
-		resourcesResult, err := client.ListResources(ctx, &mcp.ListResourcesParams{Cursor: nextCursor})
+		resourcesResult, err := c.ListResources(ctx, &mcp.ListResourcesParams{Cursor: nextCursor})
 		if err != nil {
 			return nil, fmt.Errorf("failed to list resources from upstream: %w", err)
 		}
@@ -123,11 +125,11 @@ func fetchAllResources(ctx context.Context, client *Client) ([]*mcp.Resource, er
 }
 
 // fetchAllResourceTemplates fetches all resource templates from upstream using pagination
-func fetchAllResourceTemplates(ctx context.Context, client *Client) ([]*mcp.ResourceTemplate, error) {
+func fetchAllResourceTemplates(ctx context.Context, c *client.Client) ([]*mcp.ResourceTemplate, error) {
 	var allTemplates []*mcp.ResourceTemplate
 	nextCursor := ""
 	for {
-		templatesResult, err := client.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{Cursor: nextCursor})
+		templatesResult, err := c.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{Cursor: nextCursor})
 		if err != nil {
 			return nil, fmt.Errorf("failed to list resource templates from upstream: %w", err)
 		}
@@ -144,11 +146,11 @@ func fetchAllResourceTemplates(ctx context.Context, client *Client) ([]*mcp.Reso
 }
 
 // fetchAllPrompts fetches all prompts from upstream using pagination
-func fetchAllPrompts(ctx context.Context, client *Client) ([]*mcp.Prompt, error) {
+func fetchAllPrompts(ctx context.Context, c *client.Client) ([]*mcp.Prompt, error) {
 	var allPrompts []*mcp.Prompt
 	nextCursor := ""
 	for {
-		promptsResult, err := client.ListPrompts(ctx, &mcp.ListPromptsParams{Cursor: nextCursor})
+		promptsResult, err := c.ListPrompts(ctx, &mcp.ListPromptsParams{Cursor: nextCursor})
 		if err != nil {
 			return nil, fmt.Errorf("failed to list prompts from upstream: %w", err)
 		}
@@ -168,14 +170,14 @@ func fetchAllPrompts(ctx context.Context, client *Client) ([]*mcp.Prompt, error)
 func setupProxyHandlersWithStrategy(
 	ctx context.Context,
 	mcpServer *mcp.Server,
-	client *Client,
+	c *client.Client,
 	initResult *mcp.InitializeResult,
 	naming HandlerNamingStrategy,
 	registry HandlerRegistry,
 ) error {
 	// Setup tools
 	if initResult.Capabilities.Tools != nil {
-		tools, err := fetchAllTools(ctx, client)
+		tools, err := fetchAllTools(ctx, c)
 		if err != nil {
 			return err
 		}
@@ -186,7 +188,7 @@ func setupProxyHandlersWithStrategy(
 			toolCopy.Name = naming.TransformName(tool.Name)
 			mcpServer.AddTool(&toolCopy, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				// Use captured original name
-				return client.CallTool(ctx, &mcp.CallToolParams{
+				return c.CallTool(ctx, &mcp.CallToolParams{
 					Name:      originalName,
 					Arguments: req.Params.Arguments,
 				})
@@ -197,7 +199,7 @@ func setupProxyHandlersWithStrategy(
 
 	// Setup resources
 	if initResult.Capabilities.Resources != nil {
-		resources, err := fetchAllResources(ctx, client)
+		resources, err := fetchAllResources(ctx, c)
 		if err != nil {
 			return err
 		}
@@ -209,13 +211,13 @@ func setupProxyHandlersWithStrategy(
 			resourceCopy.URI = naming.TransformURI(resource.URI)
 			mcpServer.AddResource(&resourceCopy, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 				// Use captured original URI
-				return client.ReadResource(ctx, &mcp.ReadResourceParams{URI: originalURI})
+				return c.ReadResource(ctx, &mcp.ReadResourceParams{URI: originalURI})
 			})
 			registry.AddResourceURI(resourceCopy.URI)
 		}
 
 		// Setup resource templates
-		templates, err := fetchAllResourceTemplates(ctx, client)
+		templates, err := fetchAllResourceTemplates(ctx, c)
 		if err != nil {
 			return err
 		}
@@ -229,7 +231,7 @@ func setupProxyHandlersWithStrategy(
 				// The request URI will have the transformed prefix, we need to pass the original
 				transformedPrefix := naming.TransformURI("")
 				originalRequestURI := strings.TrimPrefix(req.Params.URI, transformedPrefix)
-				return client.ReadResource(ctx, &mcp.ReadResourceParams{URI: originalRequestURI})
+				return c.ReadResource(ctx, &mcp.ReadResourceParams{URI: originalRequestURI})
 			})
 			registry.AddResourceTemplateURI(templateCopy.URITemplate)
 		}
@@ -237,7 +239,7 @@ func setupProxyHandlersWithStrategy(
 
 	// Setup prompts
 	if initResult.Capabilities.Prompts != nil {
-		prompts, err := fetchAllPrompts(ctx, client)
+		prompts, err := fetchAllPrompts(ctx, c)
 		if err != nil {
 			return err
 		}
@@ -248,7 +250,7 @@ func setupProxyHandlersWithStrategy(
 			promptCopy.Name = naming.TransformName(prompt.Name)
 			mcpServer.AddPrompt(&promptCopy, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 				// Use captured original name
-				return client.GetPrompt(ctx, &mcp.GetPromptParams{
+				return c.GetPrompt(ctx, &mcp.GetPromptParams{
 					Name:      originalName,
 					Arguments: req.Params.Arguments,
 				})
@@ -262,17 +264,17 @@ func setupProxyHandlersWithStrategy(
 
 // watchClientEvents is a generic event watcher that monitors a client for events
 // and calls the refresh handler for relevant event types
-func watchClientEvents(ctx context.Context, client *Client, refreshHandler func(EventType) error) {
+func watchClientEvents(ctx context.Context, c *client.Client, refreshHandler func(client.EventType) error) {
 	for {
 		// Wait for the next event
-		event, err := client.WaitForEvent(ctx)
+		event, err := c.WaitForEvent(ctx)
 		if err != nil {
 			// Context canceled or closed
 			return
 		}
 
 		switch event.Type {
-		case EventConnected, EventToolsListChanged, EventResourcesListChanged, EventPromptsListChanged, EventResourceTemplatesListChanged:
+		case client.EventConnected, client.EventToolsListChanged, client.EventResourcesListChanged, client.EventPromptsListChanged, client.EventResourceTemplatesListChanged:
 			if err := refreshHandler(event.Type); err != nil {
 				logrus.WithError(err).Errorf("Failed to refresh handlers after %s", event.Type.String())
 				continue
@@ -283,7 +285,7 @@ func watchClientEvents(ctx context.Context, client *Client, refreshHandler func(
 
 		// Check if another event occurred during processing
 		// If so, handle it immediately instead of blocking on WaitForEvent
-		if lastEvent := client.GetLastEvent(); lastEvent != nil && !lastEvent.Timestamp.Equal(event.Timestamp) {
+		if lastEvent := c.GetLastEvent(); lastEvent != nil && !lastEvent.Timestamp.Equal(event.Timestamp) {
 			logrus.Debug("New event detected during processing, handling immediately")
 			continue
 		}
@@ -303,7 +305,7 @@ type SingleProxy struct {
 	*proxyCore
 	transport         string
 	path              string
-	client            *Client
+	client            *client.Client
 	ctx               context.Context
 	naming            HandlerNamingStrategy
 	tools             []string
@@ -314,7 +316,7 @@ type SingleProxy struct {
 
 // NewSingleProxy creates a new proxy that will expose the given client
 // via the specified transport (streamablehttp)
-func NewSingleProxy(transport string, client *Client, path string, authenticator *auth.Authenticator, authorizer *auth.Authorizer) (*SingleProxy, error) {
+func NewSingleProxy(transport string, c *client.Client, path string, authenticator *auth.Authenticator, authorizer *auth.Authorizer) (*SingleProxy, error) {
 	// Create proxy core with shared initialization
 	core, err := newProxyCore("mcp-auth-proxy", "1.0.0", authenticator, authorizer, transport)
 	if err != nil {
@@ -325,7 +327,7 @@ func NewSingleProxy(transport string, client *Client, path string, authenticator
 		proxyCore: core,
 		transport: transport,
 		path:      path,
-		client:    client,
+		client:    c,
 		naming:    &singleProxyNamingStrategy{},
 	}, nil
 }
@@ -380,7 +382,7 @@ func (p *SingleProxy) Init(ctx context.Context) error {
 // watchConnectionEvents monitors the client for connection/reconnection events
 // and updates the proxy handlers accordingly
 func (p *SingleProxy) watchConnectionEvents(ctx context.Context) {
-	watchClientEvents(ctx, p.client, func(eventType EventType) error {
+	watchClientEvents(ctx, p.client, func(eventType client.EventType) error {
 		return p.refreshHandlers(p.ctx, eventType)
 	})
 }
@@ -396,7 +398,7 @@ func (p *SingleProxy) setupProxyHandlers(ctx context.Context, initResult *mcp.In
 }
 
 // refreshHandlers clears and re-registers all handlers for this proxy
-func (p *SingleProxy) refreshHandlers(ctx context.Context, eventType EventType) error {
+func (p *SingleProxy) refreshHandlers(ctx context.Context, eventType client.EventType) error {
 	logrus.Infof("SingleProxy: %s - refreshing handlers", eventType.String())
 
 	// Clear all existing handlers
@@ -535,8 +537,8 @@ type MultiProxy struct {
 	*proxyCore // Embedded
 	transport              string
 	path                   string
-	clients                map[string]*Client
-	mcps                   []MultiMCPConfig
+	clients                map[string]*client.Client
+	mcps                   []config.MultiMCPConfig
 	ctx                    context.Context
 	mu                     sync.RWMutex        // protects registeredTools, registeredRes, registeredResTemplates, registeredPropts
 	registeredTools        map[string][]string // client name -> tool names
@@ -548,8 +550,8 @@ type MultiProxy struct {
 // NewMultiProxy creates a new multi-proxy
 func NewMultiProxy(
 	transport string,
-	clients map[string]*Client,
-	mcps []MultiMCPConfig,
+	clients map[string]*client.Client,
+	mcps []config.MultiMCPConfig,
 	path string,
 	authenticator *auth.Authenticator,
 	authorizer *auth.Authorizer,
@@ -600,14 +602,14 @@ func (p *MultiProxy) Init(ctx context.Context) error {
 // watchClientConnectionEvents monitors a specific client for connection/reconnection events
 // and updates the proxy handlers accordingly
 func (p *MultiProxy) watchClientConnectionEvents(ctx context.Context, clientName, prefix string) {
-	client, ok := p.clients[clientName]
+	c, ok := p.clients[clientName]
 	if !ok {
 		logrus.Errorf("MultiProxy: client not found: %s", clientName)
 		return
 	}
 
-	watchClientEvents(ctx, client, func(eventType EventType) error {
-		return p.refreshHandlers(p.ctx, client, clientName, prefix, eventType)
+	watchClientEvents(ctx, c, func(eventType client.EventType) error {
+		return p.refreshHandlers(p.ctx, c, clientName, prefix, eventType)
 	})
 }
 
@@ -642,7 +644,7 @@ func (p *MultiProxy) clearClientHandlers(clientName string) {
 }
 
 // setupProxyHandlers configures the MCP server to forward all requests to the upstream client
-func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, initResult *mcp.InitializeResult, clientName, prefix string) error {
+func (p *MultiProxy) setupProxyHandlers(ctx context.Context, c *client.Client, initResult *mcp.InitializeResult, clientName, prefix string) error {
 	// Create strategies for this client
 	naming := &multiProxyNamingStrategy{prefix: prefix}
 	registry := &multiProxyClientRegistry{
@@ -650,24 +652,24 @@ func (p *MultiProxy) setupProxyHandlers(ctx context.Context, client *Client, ini
 		clientName: clientName,
 	}
 
-	return setupProxyHandlersWithStrategy(ctx, p.mcpServer, client, initResult, naming, registry)
+	return setupProxyHandlersWithStrategy(ctx, p.mcpServer, c, initResult, naming, registry)
 }
 
 // refreshHandlers clears and re-registers all handlers for a specific client
-func (p *MultiProxy) refreshHandlers(ctx context.Context, client *Client, clientName, prefix string, eventType EventType) error {
+func (p *MultiProxy) refreshHandlers(ctx context.Context, c *client.Client, clientName, prefix string, eventType client.EventType) error {
 	logrus.Infof("MultiProxy: client %s - %s - refreshing handlers", clientName, eventType.String())
 
 	// Clear handlers for this specific client
 	p.clearClientHandlers(clientName)
 
 	// Get the current initialization result
-	initResult := client.GetInitResult()
+	initResult := c.GetInitResult()
 	if initResult == nil {
 		return fmt.Errorf("initResult is nil")
 	}
 
 	// Set up handlers with the updated capabilities
-	if err := p.setupProxyHandlers(ctx, client, initResult, clientName, prefix); err != nil {
+	if err := p.setupProxyHandlers(ctx, c, initResult, clientName, prefix); err != nil {
 		return fmt.Errorf("failed to setup handlers: %w", err)
 	}
 
