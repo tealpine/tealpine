@@ -57,8 +57,10 @@ func newProxyCore(name, version string, authenticator *auth.Authenticator, autho
 		Instructions: "MCP Authentication Proxy",
 	})
 
-	// Add authorization middleware
+	// Add authorization middleware (checks permissions)
 	core.mcpServer.AddReceivingMiddleware(authorizer.Middleware)
+	// Add filtering middleware (filters list results based on permissions)
+	core.mcpServer.AddReceivingMiddleware(authorizer.FilteringMiddleware)
 
 	// Create HTTP handler
 	switch transport {

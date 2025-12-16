@@ -162,6 +162,16 @@ func TestServer(t *testing.T) {
 						Method: "tools/call",
 						Allow:  []string{"*"},
 					},
+					{
+						User:   "alice",
+						Method: "tools/list",
+						Allow:  []string{"*"},
+					},
+					{
+						User:   "alice",
+						Method: "tools/call",
+						Allow:  []string{"calc*", "temp_get_room_temperature"},
+					},
 				},
 			},
 		},
@@ -169,6 +179,10 @@ func TestServer(t *testing.T) {
 			"test-user": {
 				Token:  "test-user-token",
 				Groups: []string{"admins", "power-users"},
+			},
+			"alice": {
+				Token:  "alice-token",
+				Groups: []string{},
 			},
 		},
 	}
@@ -454,6 +468,76 @@ func TestServer(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, result.IsError)
 		require.Equal(t, "42.00", result.Content[0].(*mcp.TextContent).Text)
+	})
+
+	// Test MultiProxy with Alice's partial permissions
+	t.Run("MultiProxy_Permissions", func(t *testing.T) {
+		client := mcp.NewClient(&mcp.Implementation{
+			Name:    "test-alice-client",
+			Version: "1.0.0",
+		}, nil)
+
+		transport := &mcp.StreamableClientTransport{
+			Endpoint: "http://" + serverAddr + "/multi/mcp",
+			HTTPClient: &http.Client{
+				Transport: &bearerAuthTransport{
+					wrapped: http.DefaultTransport,
+					bearer:  "alice-token",
+				},
+			},
+		}
+
+		session, err := client.Connect(ctx, transport, nil)
+		require.NoError(t, err)
+		defer session.Close()
+
+		// 1. List all tools - should only see tools Alice is allowed to call
+		// Alice can call: "calc*" and "temp_get_room_temperature"
+		toolsResult, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+		require.NoError(t, err)
+		require.Len(t, toolsResult.Tools, 2, "Alice should only see 2 tools (filtered by permissions)")
+		toolNames := make(map[string]bool)
+		hasCalcTool := false
+		for _, tool := range toolsResult.Tools {
+			toolNames[tool.Name] = true
+			// Check if any tool starts with "calc_" (calc_calculate or calc_count)
+			if len(tool.Name) >= 5 && tool.Name[:5] == "calc_" {
+				hasCalcTool = true
+			}
+		}
+		require.True(t, hasCalcTool, "Alice should see a calc tool (calc_calculate or calc_count)")
+		require.True(t, toolNames["temp_get_room_temperature"], "Alice should see temp_get_room_temperature")
+		require.False(t, toolNames["temp_get_all_temperatures"], "Alice should NOT see temp_get_all_temperatures")
+		require.False(t, toolNames["hello_hello_world"], "Alice should NOT see hello_hello_world")
+
+		// 2. Call temp_get_room_temperature - should succeed
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "temp_get_room_temperature",
+			Arguments: map[string]interface{}{
+				"room": "bedroom",
+			},
+		})
+		require.NoError(t, err, "Alice should be able to call temp_get_room_temperature")
+		require.False(t, result.IsError)
+		require.Contains(t, result.Content[0].(*mcp.TextContent).Text, "The temperature in the bedroom is")
+
+		// 3. Call temp_get_all_temperatures - should fail (not authorized)
+		_, err = session.CallTool(ctx, &mcp.CallToolParams{
+			Name:      "temp_get_all_temperatures",
+			Arguments: map[string]interface{}{},
+		})
+		require.Error(t, err, "Alice should NOT be able to call temp_get_all_temperatures")
+		require.Contains(t, err.Error(), "access denied", "Error should indicate access denied")
+
+		// 4. Call hello_hello_world - should fail (not authorized)
+		_, err = session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "hello_hello_world",
+			Arguments: map[string]interface{}{
+				"name": "Alice",
+			},
+		})
+		require.Error(t, err, "Alice should NOT be able to call hello_hello_world")
+		require.Contains(t, err.Error(), "access denied", "Error should indicate access denied")
 	})
 
 }

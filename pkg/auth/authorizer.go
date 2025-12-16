@@ -149,6 +149,135 @@ func (a *Authorizer) authorize(ctx context.Context, method string, req mcp.Reque
 	return nil
 }
 
+// FilteringMiddleware returns a mcp.Middleware that filters list results
+// to only include items the user is authorized to access
+func (a *Authorizer) FilteringMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		// Call the next handler to get results
+		result, err := next(ctx, method, req)
+		if err != nil {
+			return result, err
+		}
+
+		// If auth is disabled, pass through without filtering
+		if !a.enabled {
+			return result, nil
+		}
+
+		// Extract username from context
+		username, ok := ctx.Value(CtxUsernameKey).(string)
+		if !ok {
+			// If no username, pass through (will be caught by authorization middleware)
+			return result, nil
+		}
+
+		// Filter results based on method type
+		switch method {
+		case "tools/list":
+			return a.filterToolsList(ctx, result, username)
+		case "resources/list":
+			return a.filterResourcesList(ctx, result, username)
+		case "prompts/list":
+			return a.filterPromptsList(ctx, result, username)
+		case "resource_templates/list":
+			return a.filterResourceTemplatesList(ctx, result, username)
+		default:
+			// Not a list method, pass through
+			return result, nil
+		}
+	}
+}
+
+// filterToolsList filters tools list to only include allowed tools
+func (a *Authorizer) filterToolsList(ctx context.Context, result mcp.Result, username string) (mcp.Result, error) {
+	listResult, ok := result.(*mcp.ListToolsResult)
+	if !ok {
+		return result, nil
+	}
+
+	filtered := make([]*mcp.Tool, 0)
+	for _, tool := range listResult.Tools {
+		allowed, err := a.enforcer.Enforce("user:"+username, "tools/call", tool.Name)
+		if err != nil {
+			// Log error but continue filtering
+			continue
+		}
+		if allowed {
+			filtered = append(filtered, tool)
+		}
+	}
+
+	listResult.Tools = filtered
+	return listResult, nil
+}
+
+// filterResourcesList filters resources list to only include allowed resources
+func (a *Authorizer) filterResourcesList(ctx context.Context, result mcp.Result, username string) (mcp.Result, error) {
+	listResult, ok := result.(*mcp.ListResourcesResult)
+	if !ok {
+		return result, nil
+	}
+
+	filtered := make([]*mcp.Resource, 0)
+	for _, resource := range listResult.Resources {
+		allowed, err := a.enforcer.Enforce("user:"+username, "resources/read", resource.URI)
+		if err != nil {
+			continue
+		}
+		if allowed {
+			filtered = append(filtered, resource)
+		}
+	}
+
+	listResult.Resources = filtered
+	return listResult, nil
+}
+
+// filterPromptsList filters prompts list to only include allowed prompts
+func (a *Authorizer) filterPromptsList(ctx context.Context, result mcp.Result, username string) (mcp.Result, error) {
+	listResult, ok := result.(*mcp.ListPromptsResult)
+	if !ok {
+		return result, nil
+	}
+
+	filtered := make([]*mcp.Prompt, 0)
+	for _, prompt := range listResult.Prompts {
+		allowed, err := a.enforcer.Enforce("user:"+username, "prompts/get", prompt.Name)
+		if err != nil {
+			continue
+		}
+		if allowed {
+			filtered = append(filtered, prompt)
+		}
+	}
+
+	listResult.Prompts = filtered
+	return listResult, nil
+}
+
+// filterResourceTemplatesList filters resource templates list to only include allowed templates
+func (a *Authorizer) filterResourceTemplatesList(ctx context.Context, result mcp.Result, username string) (mcp.Result, error) {
+	listResult, ok := result.(*mcp.ListResourceTemplatesResult)
+	if !ok {
+		return result, nil
+	}
+
+	filtered := make([]*mcp.ResourceTemplate, 0)
+	for _, template := range listResult.ResourceTemplates {
+		// For templates, check if user has permission to read resources matching the template pattern
+		allowed, err := a.enforcer.Enforce("user:"+username, "resources/read", template.URITemplate)
+		if err != nil {
+			continue
+		}
+		if allowed {
+			filtered = append(filtered, template)
+		}
+	}
+
+	listResult.ResourceTemplates = filtered
+	return listResult, nil
+}
+
 // extractResourceName extracts the resource name from various param types
 func (a *Authorizer) extractResourceName(req mcp.Request) string {
 	params := req.GetParams()
