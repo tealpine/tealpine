@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,12 +11,15 @@ import (
 	"mcp-auth-proxy/pkg/client"
 	"mcp-auth-proxy/pkg/config"
 	"mcp-auth-proxy/pkg/proxy"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Server struct {
 	cfg        *config.Config
 	clients    map[string]*client.Client
 	proxies    map[string]http.Handler
+	ginEngine  *gin.Engine
 	httpServer *http.Server
 }
 
@@ -25,6 +29,30 @@ func NewServer(cfg *config.Config) *Server {
 		clients: make(map[string]*client.Client),
 		proxies: make(map[string]http.Handler),
 	}
+}
+
+// statusHandler returns the connection status of all clients
+func (s *Server) statusHandler(c *gin.Context) {
+	type ClientStatus struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+
+	statuses := make([]ClientStatus, 0, len(s.clients))
+	for name, client := range s.clients {
+		status := "disconnected"
+		if client.IsConnected() {
+			status = "connected"
+		}
+		statuses = append(statuses, ClientStatus{
+			Name:   name,
+			Status: status,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"clients": statuses,
+	})
 }
 
 func (s *Server) Init(ctx context.Context) error {
@@ -95,15 +123,21 @@ func (s *Server) Init(ctx context.Context) error {
 		s.proxies[proxyConfig.Path] = proxyHandler
 	}
 
-	// 3. Create http server
-	mux := http.NewServeMux()
+	// 3. Create Gin engine and http server
+	s.ginEngine = gin.New()
+	s.ginEngine.Use(gin.Recovery())
+
+	// Register API endpoints
+	s.ginEngine.GET("/tealpine/api/v1/status", s.statusHandler)
+
+	// Register proxy endpoints
 	for path, proxyHandler := range s.proxies {
-		mux.Handle("/"+path+"/", proxyHandler)
+		s.ginEngine.Any("/"+path+"/*proxyPath", gin.WrapH(proxyHandler))
 	}
 
 	s.httpServer = &http.Server{
 		Addr:    s.cfg.Server.Host,
-		Handler: mux,
+		Handler: s.ginEngine,
 	}
 
 	return nil
@@ -118,9 +152,13 @@ func (s *Server) WaitForClients(ctx context.Context) error {
 	return nil
 }
 
+func (s *Server) GetHTTPServer() *http.Server {
+	return s.httpServer
+}
+
 func (s *Server) Run() error {
 	log.Printf("Starting server on %s", s.httpServer.Addr)
-	if err := s.httpServer.ListenAndServe(); err != http.ErrServerClosed {
+	if err := s.httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
