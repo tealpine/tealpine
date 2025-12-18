@@ -16,7 +16,13 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Host string `json:"host"`
+	Host  string `json:"host"`
+	Admin Admin  `json:"admin"`
+}
+
+type Admin struct {
+	Users  []string `json:"users"`
+	Groups []string `json:"groups"`
 }
 
 type MCPConfig struct {

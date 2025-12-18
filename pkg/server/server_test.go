@@ -128,6 +128,9 @@ func TestStatusEndpoint(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: serverAddr,
+			Admin: config.Admin{
+				Users: []string{"admin"},
+			},
 		},
 		MCP: map[string]config.MCPConfig{
 			"calculator1": {
@@ -157,6 +160,12 @@ func TestStatusEndpoint(t *testing.T) {
 				MCP:       "calculator2",
 			},
 		},
+		Users: map[string]config.UserConfig{
+			"admin": {
+				Token:  "admin-secret-token",
+				Groups: []string{},
+			},
+		},
 	}
 
 	// Create and initialize server
@@ -182,7 +191,11 @@ func TestStatusEndpoint(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Test 1: Check both clients are connected
-	resp, err := http.Get("http://" + serverAddr + "/tealpine/api/v1/status")
+	req, err := http.NewRequest("GET", "http://"+serverAddr+"/tealpine/api/v1/status", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer admin-secret-token")
+
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -217,7 +230,11 @@ func TestStatusEndpoint(t *testing.T) {
 	time.Sleep(8 * time.Second)
 
 	// Check status again
-	resp, err = http.Get("http://" + serverAddr + "/tealpine/api/v1/status")
+	req, err = http.NewRequest("GET", "http://"+serverAddr+"/tealpine/api/v1/status", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer admin-secret-token")
+
+	resp, err = http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 

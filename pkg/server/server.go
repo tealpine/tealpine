@@ -127,8 +127,36 @@ func (s *Server) Init(ctx context.Context) error {
 	s.ginEngine = gin.New()
 	s.ginEngine.Use(gin.Recovery())
 
-	// Register API endpoints
-	s.ginEngine.GET("/tealpine/api/v1/status", s.statusHandler)
+	// Build users map for admin authentication
+	users := make(map[string]*auth.UserInfo)
+	for username, userConfig := range s.cfg.Users {
+		users[username] = &auth.UserInfo{
+			Token:  userConfig.Token,
+			Groups: userConfig.Groups,
+		}
+	}
+
+	// Create authenticator and admin authorizer for /tealpine endpoints
+	authenticator := auth.NewAuthenticator(users)
+	adminAuthorizer := auth.NewAdminAuthorizer(users, s.cfg.Server.Admin.Users, s.cfg.Server.Admin.Groups)
+
+	// Convert HTTP middleware to Gin middleware
+	adminMiddleware := func(c *gin.Context) {
+		// Create a handler that will be wrapped by the auth middlewares
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Update the gin context with the modified request (contains username in context)
+			c.Request = r
+			c.Next()
+		})
+
+		// Apply authentication and authorization
+		authenticator.Middleware(adminAuthorizer.Middleware(handler)).ServeHTTP(c.Writer, c.Request)
+	}
+
+	// Register admin API endpoints with authentication and authorization
+	tealpineGroup := s.ginEngine.Group("/tealpine")
+	tealpineGroup.Use(adminMiddleware)
+	tealpineGroup.GET("/api/v1/status", s.statusHandler)
 
 	// Register proxy endpoints
 	for path, proxyHandler := range s.proxies {
