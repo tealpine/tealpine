@@ -7,18 +7,20 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"mcp-auth-proxy/pkg/config"
 )
 
 // Authorizer handles MCP method authorization using Casbin RBAC
 type Authorizer struct {
 	enforcer *casbin.Enforcer
-	users    map[string]*UserInfo
+	users    map[string]config.UserConfig
 	enabled  bool // whether auth is enabled
 }
 
 // NewAuthorizer creates a new authorizer with the given users and auth rules
 // If no auth rules are provided, authorization is disabled
-func NewAuthorizer(users map[string]*UserInfo, authRules []AuthRule) (*Authorizer, error) {
+func NewAuthorizer(users map[string]config.UserConfig, authRules []AuthRule) (*Authorizer, error) {
 	// If no auth rules are provided, create a disabled authorizer
 	if len(authRules) == 0 {
 		return &Authorizer{
@@ -60,8 +62,8 @@ func NewAuthorizer(users map[string]*UserInfo, authRules []AuthRule) (*Authorize
 	}
 
 	// Add user to group mappings with group: prefix to avoid conflicts
-	for username, userInfo := range users {
-		for _, group := range userInfo.Groups {
+	for username, userConfig := range users {
+		for _, group := range userConfig.Groups {
 			_, err := enforcer.AddGroupingPolicy("user:"+username, "group:"+group)
 			if err != nil {
 				return nil, fmt.Errorf("failed to add grouping policy: %w", err)

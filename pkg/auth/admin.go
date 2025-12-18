@@ -2,17 +2,19 @@ package auth
 
 import (
 	"net/http"
+
+	"mcp-auth-proxy/pkg/config"
 )
 
 // AdminAuthorizer checks if a user has admin privileges
 type AdminAuthorizer struct {
-	users       map[string]*UserInfo
+	users       map[string]config.UserConfig
 	adminUsers  []string
 	adminGroups []string
 }
 
 // NewAdminAuthorizer creates a new admin authorizer
-func NewAdminAuthorizer(users map[string]*UserInfo, adminUsers []string, adminGroups []string) *AdminAuthorizer {
+func NewAdminAuthorizer(users map[string]config.UserConfig, adminUsers []string, adminGroups []string) *AdminAuthorizer {
 	return &AdminAuthorizer{
 		users:       users,
 		adminUsers:  adminUsers,
@@ -40,9 +42,9 @@ func (a *AdminAuthorizer) Middleware(next http.Handler) http.Handler {
 		}
 
 		// Check if user belongs to any admin group
-		userInfo := a.users[username]
-		if userInfo != nil {
-			for _, userGroup := range userInfo.Groups {
+		userConfig, exists := a.users[username]
+		if exists {
+			for _, userGroup := range userConfig.Groups {
 				for _, adminGroup := range a.adminGroups {
 					if userGroup == adminGroup {
 						next.ServeHTTP(w, r)

@@ -6,10 +6,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+
+	"mcp-auth-proxy/pkg/config"
 )
 
 func TestNewAuthorizer_NoRules(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1", "gr2"},
@@ -23,7 +25,7 @@ func TestNewAuthorizer_NoRules(t *testing.T) {
 }
 
 func TestNewAuthorizer_WithRules(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1", "gr2"},
@@ -55,7 +57,7 @@ func TestNewAuthorizer_WithRules(t *testing.T) {
 
 func TestAuthorizerMiddleware_Disabled(t *testing.T) {
 	// Create authorizer with no rules (disabled)
-	authorizer, err := NewAuthorizer(make(map[string]*UserInfo), []AuthRule{})
+	authorizer, err := NewAuthorizer(make(map[string]config.UserConfig), []AuthRule{})
 	require.NoError(t, err)
 
 	// Create test handler
@@ -81,7 +83,7 @@ func TestAuthorizerMiddleware_Disabled(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_MissingUsername(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -117,7 +119,7 @@ func TestAuthorizerMiddleware_MissingUsername(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_InitializeMethod_Allowed(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -154,7 +156,7 @@ func TestAuthorizerMiddleware_InitializeMethod_Allowed(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_NotificationsInitialized_Allowed(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -191,7 +193,7 @@ func TestAuthorizerMiddleware_NotificationsInitialized_Allowed(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_UserDirectPermission_Allowed(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1", "gr2"},
@@ -230,7 +232,7 @@ func TestAuthorizerMiddleware_UserDirectPermission_Allowed(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_UserDirectPermission_Denied(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1", "gr2"},
@@ -267,7 +269,7 @@ func TestAuthorizerMiddleware_UserDirectPermission_Denied(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_GroupPermission_Allowed(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1", "gr2"},
@@ -310,7 +312,7 @@ func TestAuthorizerMiddleware_GroupPermission_Allowed(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_GroupPermission_Denied(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1", "gr2"},
@@ -351,7 +353,7 @@ func TestAuthorizerMiddleware_GroupPermission_Denied(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_WildcardPattern(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -408,7 +410,7 @@ func TestAuthorizerMiddleware_WildcardPattern(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_MethodSpecific(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -450,7 +452,7 @@ func TestAuthorizerMiddleware_MethodSpecific(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_NoResourceName(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -488,7 +490,7 @@ func TestAuthorizerMiddleware_NoResourceName(t *testing.T) {
 }
 
 func TestFilteringMiddleware_ToolsList_FilterByPermission(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -535,7 +537,7 @@ func TestFilteringMiddleware_ToolsList_FilterByPermission(t *testing.T) {
 }
 
 func TestFilteringMiddleware_ToolsList_MultiplePermissions(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1", "gr2"},
@@ -583,7 +585,7 @@ func TestFilteringMiddleware_ToolsList_MultiplePermissions(t *testing.T) {
 }
 
 func TestFilteringMiddleware_ToolsList_NoPermissions(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -626,7 +628,7 @@ func TestFilteringMiddleware_ToolsList_NoPermissions(t *testing.T) {
 
 func TestFilteringMiddleware_ToolsList_Disabled(t *testing.T) {
 	// Create authorizer with no rules (disabled)
-	authorizer, err := NewAuthorizer(make(map[string]*UserInfo), []AuthRule{})
+	authorizer, err := NewAuthorizer(make(map[string]config.UserConfig), []AuthRule{})
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -653,7 +655,7 @@ func TestFilteringMiddleware_ToolsList_Disabled(t *testing.T) {
 }
 
 func TestFilteringMiddleware_ResourcesList(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -696,7 +698,7 @@ func TestFilteringMiddleware_ResourcesList(t *testing.T) {
 }
 
 func TestFilteringMiddleware_PromptsList(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -741,7 +743,7 @@ func TestFilteringMiddleware_PromptsList(t *testing.T) {
 }
 
 func TestFilteringMiddleware_NonListMethod_PassThrough(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},

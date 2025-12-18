@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"strings"
+
+	"mcp-auth-proxy/pkg/config"
 )
 
 // Authenticator handles HTTP bearer token authentication
@@ -14,7 +16,7 @@ type Authenticator struct {
 
 // NewAuthenticator creates a new authenticator with the given users
 // If no users are provided, authentication is disabled
-func NewAuthenticator(users map[string]*UserInfo) *Authenticator {
+func NewAuthenticator(users map[string]config.UserConfig) *Authenticator {
 	if len(users) == 0 {
 		return &Authenticator{
 			enabled: false,
@@ -23,8 +25,8 @@ func NewAuthenticator(users map[string]*UserInfo) *Authenticator {
 
 	// Build token map
 	userTokens := make(map[string]string)
-	for username, userInfo := range users {
-		userTokens[userInfo.Token] = username
+	for username, userConfig := range users {
+		userTokens[userConfig.Token] = username
 	}
 
 	return &Authenticator{

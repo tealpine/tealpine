@@ -9,10 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"mcp-auth-proxy/pkg/auth"
+	"mcp-auth-proxy/pkg/config"
 )
 
 func TestAdminAuthorizer(t *testing.T) {
-	users := map[string]*auth.UserInfo{
+	users := map[string]config.UserConfig{
 		"admin-user": {
 			Token:  "admin-token",
 			Groups: []string{},

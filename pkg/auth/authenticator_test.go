@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"mcp-auth-proxy/pkg/config"
 )
 
 func TestNewAuthenticator_NoUsers(t *testing.T) {
@@ -15,7 +17,7 @@ func TestNewAuthenticator_NoUsers(t *testing.T) {
 }
 
 func TestNewAuthenticator_WithUsers(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1", "gr2"},
@@ -60,7 +62,7 @@ func TestAuthenticatorMiddleware_Disabled(t *testing.T) {
 }
 
 func TestAuthenticatorMiddleware_MissingAuthHeader(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -83,7 +85,7 @@ func TestAuthenticatorMiddleware_MissingAuthHeader(t *testing.T) {
 }
 
 func TestAuthenticatorMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -107,7 +109,7 @@ func TestAuthenticatorMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
 }
 
 func TestAuthenticatorMiddleware_InvalidToken(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -131,7 +133,7 @@ func TestAuthenticatorMiddleware_InvalidToken(t *testing.T) {
 }
 
 func TestAuthenticatorMiddleware_ValidToken(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},
@@ -161,7 +163,7 @@ func TestAuthenticatorMiddleware_ValidToken(t *testing.T) {
 }
 
 func TestAuthenticatorMiddleware_MultipleUsers(t *testing.T) {
-	users := map[string]*UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alicetoken",
 			Groups: []string{"gr1"},

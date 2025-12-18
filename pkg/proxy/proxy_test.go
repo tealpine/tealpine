@@ -45,8 +45,8 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 	defer upstreamClient.Close()
 
 	// Create authenticator and authorizer (no auth for test)
-	authenticator := auth.NewAuthenticator(make(map[string]*auth.UserInfo))
-	authorizer, err := auth.NewAuthorizer(make(map[string]*auth.UserInfo), []auth.AuthRule{})
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig))
+	authorizer, err := auth.NewAuthorizer(make(map[string]config.UserConfig), []auth.AuthRule{})
 	require.NoError(t, err)
 
 	// Create proxy
@@ -117,8 +117,8 @@ func TestProxyStreamableHttpTemperature(t *testing.T) {
 	defer upstreamClient.Close()
 
 	// Create authenticator and authorizer (no auth for test)
-	authenticator := auth.NewAuthenticator(make(map[string]*auth.UserInfo))
-	authorizer, err := auth.NewAuthorizer(make(map[string]*auth.UserInfo), []auth.AuthRule{})
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig))
+	authorizer, err := auth.NewAuthorizer(make(map[string]config.UserConfig), []auth.AuthRule{})
 	require.NoError(t, err)
 
 	// Create proxy
@@ -237,8 +237,8 @@ func TestMultiProxy(t *testing.T) {
 	}
 
 	// 4. Create authenticator and authorizer (no auth for test)
-	authenticator := auth.NewAuthenticator(make(map[string]*auth.UserInfo))
-	authorizer, err := auth.NewAuthorizer(make(map[string]*auth.UserInfo), []auth.AuthRule{})
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig))
+	authorizer, err := auth.NewAuthorizer(make(map[string]config.UserConfig), []auth.AuthRule{})
 	require.NoError(t, err)
 
 	// 5. Create MultiProxy
@@ -332,7 +332,7 @@ func TestProxyFilteringMiddleware_ToolsList(t *testing.T) {
 	// Create users and auth rules
 	// Alice can only list/call "calculate" tool (which the calculator server provides)
 	// Bob has no permissions
-	users := map[string]*auth.UserInfo{
+	users := map[string]config.UserConfig{
 		"alice": {
 			Token:  "alice-token",
 			Groups: []string{},

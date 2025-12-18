@@ -65,15 +65,6 @@ func (s *Server) Init(ctx context.Context) error {
 
 	// 2. Create and initialize all proxies
 	for name, proxyConfig := range s.cfg.Proxy {
-		// Build users map for authentication
-		users := make(map[string]*auth.UserInfo)
-		for username, userConfig := range s.cfg.Users {
-			users[username] = &auth.UserInfo{
-				Token:  userConfig.Token,
-				Groups: userConfig.Groups,
-			}
-		}
-
 		// Build auth rules for authorization
 		authRules := make([]auth.AuthRule, 0, len(proxyConfig.Auth))
 		for _, rule := range proxyConfig.Auth {
@@ -86,10 +77,10 @@ func (s *Server) Init(ctx context.Context) error {
 		}
 
 		// Create authenticator (HTTP middleware for token validation)
-		authenticator := auth.NewAuthenticator(users)
+		authenticator := auth.NewAuthenticator(s.cfg.Users)
 
 		// Create authorizer (MCP middleware for Casbin enforcement)
-		authorizer, err := auth.NewAuthorizer(users, authRules)
+		authorizer, err := auth.NewAuthorizer(s.cfg.Users, authRules)
 		if err != nil {
 			return fmt.Errorf("failed to create authorizer for proxy %s: %w", name, err)
 		}
@@ -127,18 +118,9 @@ func (s *Server) Init(ctx context.Context) error {
 	s.ginEngine = gin.New()
 	s.ginEngine.Use(gin.Recovery())
 
-	// Build users map for admin authentication
-	users := make(map[string]*auth.UserInfo)
-	for username, userConfig := range s.cfg.Users {
-		users[username] = &auth.UserInfo{
-			Token:  userConfig.Token,
-			Groups: userConfig.Groups,
-		}
-	}
-
 	// Create authenticator and admin authorizer for /tealpine endpoints
-	authenticator := auth.NewAuthenticator(users)
-	adminAuthorizer := auth.NewAdminAuthorizer(users, s.cfg.Server.Admin.Users, s.cfg.Server.Admin.Groups)
+	authenticator := auth.NewAuthenticator(s.cfg.Users)
+	adminAuthorizer := auth.NewAdminAuthorizer(s.cfg.Users, s.cfg.Server.Admin.Users, s.cfg.Server.Admin.Groups)
 
 	// Convert HTTP middleware to Gin middleware
 	adminMiddleware := func(c *gin.Context) {
