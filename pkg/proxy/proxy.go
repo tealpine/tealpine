@@ -433,6 +433,14 @@ func (m *multiProxyNamingStrategy) TransformName(name string) string {
 }
 
 func (m *multiProxyNamingStrategy) TransformURI(uri string) string {
+	// Check if URI has a scheme (contains ://)
+	if idx := strings.Index(uri, "://"); idx != -1 {
+		// Insert prefix after scheme: foo://example.com -> foo://prefix/example.com
+		scheme := uri[:idx+3] // includes "://"
+		rest := uri[idx+3:]
+		return scheme + m.prefix + "/" + rest
+	}
+	// No scheme, use prefix with underscore separator
 	return m.prefix + "_" + uri
 }
 
