@@ -240,8 +240,8 @@ func TestClientWithStdioServer(t *testing.T) {
 		CmdArgs: []string{
 			"run",
 			"../../test/mcp_servers/main.go",
-			"hello",
 			"server",
+			"hello",
 		},
 	}
 
@@ -298,7 +298,7 @@ func TestClientWithStdioServer(t *testing.T) {
 }
 
 func TestClientWithBearerToken_StreamableHTTP(t *testing.T) {
-	expectedToken := "test-bearer-token-456"
+	expectedToken := "test-Bearer-token-456"
 	var receivedToken string
 	var mu sync.Mutex
 
@@ -322,9 +322,9 @@ func TestClientWithBearerToken_StreamableHTTP(t *testing.T) {
 	testServer := httptest.NewServer(handler)
 	defer testServer.Close()
 
-	// Create client configuration with bearer token
+	// Create client configuration with Bearer token
 	cfg := config.MCPConfig{
-		Name:      "temperature-bearer-test",
+		Name:      "temperature-Bearer-test",
 		Transport: "streamablehttp",
 		URL:       testServer.URL + "/mcp",
 		Bearer:    expectedToken,
@@ -340,11 +340,11 @@ func TestClientWithBearerToken_StreamableHTTP(t *testing.T) {
 	require.NoError(t, err, "Failed to initialize client")
 	require.NotNil(t, client.initResult, "Init result should not be nil")
 
-	// Verify the bearer token was sent
+	// Verify the Bearer token was sent
 	mu.Lock()
 	token := receivedToken
 	mu.Unlock()
-	require.Equal(t, "Bearer "+expectedToken, token, "Authorization header should contain bearer token")
+	require.Equal(t, "Bearer "+expectedToken, token, "Authorization header should contain Bearer token")
 
 	// Test that the client can successfully call tools
 	result, err := client.CallTool(ctx, &mcp.CallToolParams{
@@ -372,7 +372,7 @@ func TestClientWithBearerToken_StreamableHTTP(t *testing.T) {
 }
 
 func TestClientWithoutBearerToken(t *testing.T) {
-	// Verify that no Authorization header is sent when bearer token is not configured
+	// Verify that no Authorization header is sent when Bearer token is not configured
 	receivedAuthHeader := false
 
 	// Create a custom handler that checks for the Authorization header
@@ -392,9 +392,9 @@ func TestClientWithoutBearerToken(t *testing.T) {
 	testServer := httptest.NewServer(handler)
 	defer testServer.Close()
 
-	// Create client configuration WITHOUT bearer token
+	// Create client configuration WITHOUT Bearer token
 	cfg := config.MCPConfig{
-		Name:      "calculator-no-bearer-test",
+		Name:      "calculator-no-Bearer-test",
 		Transport: "streamablehttp",
 		URL:       testServer.URL + "/mcp",
 		// Bearer is not set
@@ -410,7 +410,7 @@ func TestClientWithoutBearerToken(t *testing.T) {
 	require.NoError(t, err, "Failed to initialize client")
 
 	// Verify no Authorization header was sent
-	require.False(t, receivedAuthHeader, "Authorization header should not be sent when bearer token is not configured")
+	require.False(t, receivedAuthHeader, "Authorization header should not be sent when Bearer token is not configured")
 
 	// Close the client
 	err = client.Close()

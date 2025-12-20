@@ -82,8 +82,8 @@ func TestServer(t *testing.T) {
 				CmdArgs: []string{
 					"run",
 					"mcp_servers/main.go",
-					"hello",
 					"server",
+					"hello",
 				},
 			},
 		},

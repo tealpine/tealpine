@@ -56,15 +56,15 @@ type ClientEvent struct {
 	Error     error // Only set for Disconnected events
 }
 
-// bearerAuthTransport wraps an http.RoundTripper to add Bearer token authorization
-type bearerAuthTransport struct {
-	wrapped http.RoundTripper
-	bearer  string
+// BearerAuthTransport wraps an http.RoundTripper to add Bearer token authorization
+type BearerAuthTransport struct {
+	Wrapped http.RoundTripper
+	Bearer  string
 }
 
-func (t *bearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req.Header.Set("Authorization", "Bearer "+t.bearer)
-	return t.wrapped.RoundTrip(req)
+func (t *BearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("Authorization", "Bearer "+t.Bearer)
+	return t.Wrapped.RoundTrip(req)
 }
 
 type Client struct {
@@ -187,9 +187,9 @@ func (cs *Client) init(ctx context.Context) error {
 		}
 		if cs.cfg.Bearer != "" {
 			streamableTransport.HTTPClient = &http.Client{
-				Transport: &bearerAuthTransport{
-					wrapped: http.DefaultTransport,
-					bearer:  cs.cfg.Bearer,
+				Transport: &BearerAuthTransport{
+					Wrapped: http.DefaultTransport,
+					Bearer:  cs.cfg.Bearer,
 				},
 			}
 		}

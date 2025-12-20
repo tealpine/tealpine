@@ -48,3 +48,29 @@ stop-mcps:
 clean: stop-mcps
 	rm -f temp.pid temp.log calc.pid calc.log
 
+.PHONY: tmux
+tmux:
+	tmux new-session -d -s tealpine
+
+	# Split into 3 panes
+	tmux split-window -h
+	tmux split-window -v
+	tmux select-pane -t 0
+	tmux split-window -v
+
+	# Run commands in each pane
+	tmux select-pane -t 0
+	tmux send-keys "go run test/mcp_servers/main.go server calc" C-m
+
+	tmux select-pane -t 1
+	tmux send-keys "go run test/mcp_servers/main.go server temp" C-m
+
+	tmux select-pane -t 2
+	tmux send-keys "go run cmd/mcpap/main.go" C-m
+
+	tmux select-pane -t 3
+	tmux send-keys "bash" C-m
+
+	# Attach
+	tmux attach-session -t tealpine
+

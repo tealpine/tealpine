@@ -302,7 +302,7 @@ func (m *MCPHello) RunClient(string) error {
 	}, nil)
 
 	transport := &mcp.CommandTransport{
-		Command: exec.Command(os.Args[0], "hello", "server"),
+		Command: exec.Command(os.Args[0], "server", "hello"),
 	}
 
 	ctx := context.Background()

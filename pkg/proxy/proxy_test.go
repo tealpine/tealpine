@@ -218,8 +218,8 @@ func TestMultiProxy(t *testing.T) {
 		CmdArgs: []string{
 			"run",
 			"../../test/mcp_servers/main.go",
-			"hello",
 			"server",
+			"hello",
 		},
 	}
 	helloClient := client.NewClient(helloConfig)
