@@ -5,10 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/sirupsen/logrus"
 	"mcp-auth-proxy/pkg/config"
 	"mcp-auth-proxy/pkg/server"
+
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -39,7 +43,12 @@ func main() {
 	}
 	logrus.Debugf("%+v", cfg)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Setup signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 
 	s := server.NewServer(cfg)
 
@@ -47,8 +56,27 @@ func main() {
 		logrus.Fatal(err)
 	}
 
-	if err := s.Run(); err != nil {
-		logrus.Fatal(err)
+	// Run server in a goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- s.Run()
+	}()
+
+	// Wait for either an error or a termination signal
+	select {
+	case err := <-errChan:
+		if err != nil {
+			logrus.Errorf("Server error: %v", err)
+		}
+	case sig := <-sigChan:
+		logrus.Infof("Received signal: %v, shutting down gracefully...", sig)
+		cancel()
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := s.Stop(stopCtx); err != nil {
+			logrus.Errorf("Error stopping server: %v", err)
+		}
+		stopCancel()
 	}
 
+	logrus.Info("Server stopped")
 }
