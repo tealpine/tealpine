@@ -297,7 +297,7 @@ func (m *MCPHello) RunServer() error {
 func (m *MCPHello) RunClient(string) error {
 	fmt.Printf("%v\n", os.Args)
 	client := mcp.NewClient(&mcp.Implementation{
-		Name:    "mcp-auth-proxy-upstream-client",
+		Name:    "tealpine-upstream-client",
 		Version: "1.0.0",
 	}, nil)
 

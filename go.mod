@@ -1,4 +1,4 @@
-module mcp-auth-proxy
+module tealpine
 
 go 1.24.5
 

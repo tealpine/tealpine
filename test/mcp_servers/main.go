@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	pkgclient "mcp-auth-proxy/pkg/client"
-	"mcp-auth-proxy/test"
 	"net/http"
 	"os"
+	pkgclient "tealpine/pkg/client"
+	"tealpine/test"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"

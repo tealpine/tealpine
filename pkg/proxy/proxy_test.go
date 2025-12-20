@@ -10,10 +10,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
-	"mcp-auth-proxy/pkg/auth"
-	"mcp-auth-proxy/pkg/client"
-	"mcp-auth-proxy/pkg/config"
-	mcptest "mcp-auth-proxy/test"
+	"tealpine/pkg/auth"
+	"tealpine/pkg/client"
+	"tealpine/pkg/config"
+	mcptest "tealpine/test"
 )
 
 func TestProxyStreamableHttpCalculator(t *testing.T) {

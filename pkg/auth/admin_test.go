@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"mcp-auth-proxy/pkg/auth"
-	"mcp-auth-proxy/pkg/config"
+	"tealpine/pkg/auth"
+	"tealpine/pkg/config"
 )
 
 func TestAdminAuthorizer(t *testing.T) {

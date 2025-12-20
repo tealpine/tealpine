@@ -8,7 +8,7 @@ import (
 	"github.com/casbin/casbin/v2/model"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"mcp-auth-proxy/pkg/config"
+	"tealpine/pkg/config"
 )
 
 // Authorizer handles MCP method authorization using Casbin RBAC

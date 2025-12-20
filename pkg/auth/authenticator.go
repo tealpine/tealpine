@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"mcp-auth-proxy/pkg/config"
+	"tealpine/pkg/config"
 )
 
 // Authenticator handles HTTP bearer token authentication

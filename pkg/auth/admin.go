@@ -3,7 +3,7 @@ package auth
 import (
 	"net/http"
 
-	"mcp-auth-proxy/pkg/config"
+	"tealpine/pkg/config"
 )
 
 // AdminAuthorizer checks if a user has admin privileges

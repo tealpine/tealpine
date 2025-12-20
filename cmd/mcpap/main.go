@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"mcp-auth-proxy/pkg/config"
-	"mcp-auth-proxy/pkg/server"
+	"tealpine/pkg/config"
+	"tealpine/pkg/server"
 
 	"github.com/sirupsen/logrus"
 )

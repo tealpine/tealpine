@@ -7,10 +7,10 @@ import (
 	"log"
 	"net/http"
 
-	"mcp-auth-proxy/pkg/auth"
-	"mcp-auth-proxy/pkg/client"
-	"mcp-auth-proxy/pkg/config"
-	"mcp-auth-proxy/pkg/proxy"
+	"tealpine/pkg/auth"
+	"tealpine/pkg/client"
+	"tealpine/pkg/config"
+	"tealpine/pkg/proxy"
 
 	"github.com/gin-gonic/gin"
 )

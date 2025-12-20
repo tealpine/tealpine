@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"mcp-auth-proxy/pkg/config"
+	"tealpine/pkg/config"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
-	mcptest "mcp-auth-proxy/test"
+	mcptest "tealpine/test"
 )
 
 func TestClientWithStreamableHTTPServer(t *testing.T) {

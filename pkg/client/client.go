@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"mcp-auth-proxy/pkg/config"
+	"tealpine/pkg/config"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
@@ -146,7 +146,7 @@ func (cs *Client) init(ctx context.Context) error {
 	// Create client if not exists
 	if cs.client == nil {
 		cs.client = mcp.NewClient(&mcp.Implementation{
-			Name:    "mcp-auth-proxy-upstream-client",
+			Name:    "tealpine-upstream-client",
 			Version: "1.0.0",
 		}, &mcp.ClientOptions{
 			ToolListChangedHandler: func(ctx context.Context, req *mcp.ToolListChangedRequest) {

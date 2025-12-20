@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"mcp-auth-proxy/pkg/auth"
-	"mcp-auth-proxy/pkg/client"
-	"mcp-auth-proxy/pkg/config"
+	"tealpine/pkg/auth"
+	"tealpine/pkg/client"
+	"tealpine/pkg/config"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
@@ -320,7 +320,7 @@ type SingleProxy struct {
 // via the specified transport (streamablehttp)
 func NewSingleProxy(transport string, c *client.Client, path string, authenticator *auth.Authenticator, authorizer *auth.Authorizer) (*SingleProxy, error) {
 	// Create proxy core with shared initialization
-	core, err := newProxyCore("mcp-auth-proxy", "1.0.0", authenticator, authorizer, transport)
+	core, err := newProxyCore("tealpine", "1.0.0", authenticator, authorizer, transport)
 	if err != nil {
 		return nil, err
 	}
@@ -335,9 +335,11 @@ func NewSingleProxy(transport string, c *client.Client, path string, authenticat
 }
 
 // HandlerRegistry implementation for SingleProxy
-func (p *SingleProxy) AddToolName(name string)           { p.tools = append(p.tools, name) }
-func (p *SingleProxy) AddResourceURI(uri string)         { p.resources = append(p.resources, uri) }
-func (p *SingleProxy) AddResourceTemplateURI(uri string) { p.resourceTemplates = append(p.resourceTemplates, uri) }
+func (p *SingleProxy) AddToolName(name string)   { p.tools = append(p.tools, name) }
+func (p *SingleProxy) AddResourceURI(uri string) { p.resources = append(p.resources, uri) }
+func (p *SingleProxy) AddResourceTemplateURI(uri string) {
+	p.resourceTemplates = append(p.resourceTemplates, uri)
+}
 func (p *SingleProxy) AddPromptName(name string)         { p.prompts = append(p.prompts, name) }
 func (p *SingleProxy) GetToolNames() []string            { return p.tools }
 func (p *SingleProxy) GetResourceURIs() []string         { return p.resources }
@@ -544,7 +546,7 @@ func (m *multiProxyClientRegistry) GetPromptNames() []string {
 
 // MultiProxy acts as a bridge between multiple MCP clients and a single server endpoint
 type MultiProxy struct {
-	*proxyCore // Embedded
+	*proxyCore             // Embedded
 	transport              string
 	path                   string
 	clients                map[string]*client.Client
@@ -566,7 +568,7 @@ func NewMultiProxy(
 	authenticator *auth.Authenticator,
 	authorizer *auth.Authorizer,
 ) (*MultiProxy, error) {
-	core, err := newProxyCore("mcp-auth-multi-proxy", "1.0.0", authenticator, authorizer, transport)
+	core, err := newProxyCore("tealpine", "1.0.0", authenticator, authorizer, transport)
 	if err != nil {
 		return nil, err
 	}

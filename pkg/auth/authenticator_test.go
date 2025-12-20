@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"mcp-auth-proxy/pkg/config"
+	"tealpine/pkg/config"
 )
 
 func TestNewAuthenticator_NoUsers(t *testing.T) {

@@ -14,8 +14,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
-	"mcp-auth-proxy/pkg/config"
-	"mcp-auth-proxy/pkg/server"
+	"tealpine/pkg/config"
+	"tealpine/pkg/server"
 )
 
 // bearerAuthTransport wraps an http.RoundTripper to add Bearer token authorization

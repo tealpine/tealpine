@@ -7,7 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
-	"mcp-auth-proxy/pkg/config"
+	"tealpine/pkg/config"
 )
 
 func TestNewAuthorizer_NoRules(t *testing.T) {

@@ -12,9 +12,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"mcp-auth-proxy/pkg/config"
-	"mcp-auth-proxy/pkg/server"
-	"mcp-auth-proxy/test"
+	"tealpine/pkg/config"
+	"tealpine/pkg/server"
+	"tealpine/test"
 )
 
 func TestServerWithInvalidProxyConfig(t *testing.T) {
