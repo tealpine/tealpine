@@ -3,4 +3,4 @@ build/
 *.pid
 *.log
 config.json
-notes.txt
+notes.md

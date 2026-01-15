@@ -77,7 +77,7 @@ func (s *Server) Init(ctx context.Context) error {
 		}
 
 		// Create authenticator (HTTP middleware for token validation)
-		authenticator := auth.NewAuthenticator(s.cfg.Users)
+		authenticator := auth.NewAuthenticator(s.cfg.Users, s.cfg.Server.Auth)
 
 		// Create authorizer (MCP middleware for Casbin enforcement)
 		authorizer, err := auth.NewAuthorizer(s.cfg.Users, authRules)
@@ -117,10 +117,28 @@ func (s *Server) Init(ctx context.Context) error {
 	// 3. Create Gin engine and http server
 	s.ginEngine = gin.New()
 	s.ginEngine.Use(gin.Recovery())
+	s.ginEngine.Use(CORSMiddleware())
 
 	// Create authenticator and admin authorizer for /tealpine endpoints
-	authenticator := auth.NewAuthenticator(s.cfg.Users)
+	authenticator := auth.NewAuthenticator(s.cfg.Users, s.cfg.Server.Auth)
 	adminAuthorizer := auth.NewAdminAuthorizer(s.cfg.Users, s.cfg.Server.Admin.Users, s.cfg.Server.Admin.Groups)
+
+	// Register OAuth endpoints if OIDC is enabled
+	if s.cfg.Server.Auth != nil && s.cfg.Server.Auth.Type == "oidc" {
+		oauthHandlers := NewOAuthHandlers(authenticator)
+		// Use Any() to handle all HTTP methods including OPTIONS for CORS preflight
+		s.ginEngine.Any("/auth/login", oauthHandlers.HandleLogin)
+		s.ginEngine.Any("/auth/callback", oauthHandlers.HandleCallback)
+		s.ginEngine.Any("/auth/logout", oauthHandlers.HandleLogout)
+
+		// Register OAuth 2.0 Protected Resource Metadata endpoints (RFC 9728)
+		// Required by MCP specification for client discovery
+		// Use Any() to handle all HTTP methods including OPTIONS for CORS preflight
+		metadataHandlers := NewMetadataHandlers(s.cfg.Server.Auth, s.cfg.Server.Host)
+		s.ginEngine.Any("/.well-known/oauth-protected-resource", metadataHandlers.HandleProtectedResourceMetadata)
+		s.ginEngine.Any("/.well-known/oauth-protected-resource/*path", metadataHandlers.HandlePathSpecificMetadata)
+		s.ginEngine.Any("/.well-known/openid-configuration", metadataHandlers.HandleOpenIDConfiguration)
+	}
 
 	// Convert HTTP middleware to Gin middleware
 	adminMiddleware := func(c *gin.Context) {

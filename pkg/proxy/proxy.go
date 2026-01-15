@@ -65,9 +65,12 @@ func newProxyCore(name, version string, authenticator *auth.Authenticator, autho
 	// Create HTTP handler
 	switch transport {
 	case "streamablehttp":
+		// Use stateless mode for simpler operation (no session management required)
 		core.httpHandler = mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 			return core.mcpServer
-		}, nil)
+		}, &mcp.StreamableHTTPOptions{
+			Stateless: true, // Allow GET requests without active sessions
+		})
 	default:
 		return nil, fmt.Errorf("unsupported transport: %s (must be 'streamablehttp')", transport)
 	}

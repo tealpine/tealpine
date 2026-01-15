@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -16,13 +19,25 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Host  string `json:"host"`
-	Admin Admin  `json:"admin"`
+	Host  string      `json:"host"`
+	Admin Admin       `json:"admin"`
+	Auth  *AuthConfig `json:"auth,omitempty"`
 }
 
 type Admin struct {
 	Users  []string `json:"users"`
 	Groups []string `json:"groups"`
+}
+
+type AuthConfig struct {
+	Type                string `json:"type"`                 // "oidc" or "token"
+	IssuerURL           string `json:"issuer_url,omitempty"` // OIDC provider URL
+	ClientID            string `json:"client_id,omitempty"`  // OAuth client ID
+	ClientSecret        string `json:"client_secret,omitempty"`
+	RedirectURL         string `json:"redirect_url,omitempty"` // Callback URL
+	UserClaimField      string `json:"user_claim_field,omitempty"`
+	GroupClaimField     string `json:"group_claim_field,omitempty"`
+	RequireUserInConfig bool   `json:"require_user_in_config,omitempty"`
 }
 
 type MCPConfig struct {
@@ -65,6 +80,11 @@ type UserConfig struct {
 
 // Validate checks the configuration for errors and returns meaningful error messages
 func (c *Config) Validate() error {
+	// Validate Server configuration
+	if err := validateServerConfig(&c.Server); err != nil {
+		return err
+	}
+
 	// Validate MCP configurations
 	for name, mcp := range c.MCP {
 		if err := validateMCPConfig(name, &mcp); err != nil {
@@ -87,6 +107,61 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func validateServerConfig(server *ServerConfig) error {
+	// Auth configuration is optional
+	if server.Auth == nil || server.Auth.Type == "" {
+		return nil
+	}
+
+	auth := server.Auth
+
+	// Expand environment variables in client_secret
+	auth.ClientSecret = expandEnvVars(auth.ClientSecret)
+
+	// Validate OIDC configuration
+	if auth.Type == "oidc" {
+		if auth.IssuerURL == "" {
+			return fmt.Errorf("server.auth: 'issuer_url' is required when type is 'oidc'")
+		}
+
+		// Validate issuer_url is a valid URL
+		if _, err := url.Parse(auth.IssuerURL); err != nil {
+			return fmt.Errorf("server.auth: 'issuer_url' is not a valid URL: %w", err)
+		}
+
+		if auth.ClientID == "" {
+			return fmt.Errorf("server.auth: 'client_id' is required when type is 'oidc'")
+		}
+
+		if auth.ClientSecret == "" {
+			return fmt.Errorf("server.auth: 'client_secret' is required when type is 'oidc'")
+		}
+
+		if auth.RedirectURL == "" {
+			return fmt.Errorf("server.auth: 'redirect_url' is required when type is 'oidc'")
+		}
+
+		// Validate redirect_url is a valid URL
+		if _, err := url.Parse(auth.RedirectURL); err != nil {
+			return fmt.Errorf("server.auth: 'redirect_url' is not a valid URL: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// expandEnvVars expands environment variable references in the format ${VAR_NAME}
+func expandEnvVars(s string) string {
+	re := regexp.MustCompile(`\$\{([^}]+)\}`)
+	return re.ReplaceAllStringFunc(s, func(match string) string {
+		varName := strings.TrimSuffix(strings.TrimPrefix(match, "${"), "}")
+		if value := os.Getenv(varName); value != "" {
+			return value
+		}
+		return match // Return original if env var not found
+	})
 }
 
 func validateMCPConfig(name string, mcp *MCPConfig) error {
