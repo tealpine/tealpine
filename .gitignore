@@ -4,3 +4,5 @@ build/
 *.log
 config.json
 notes.md
+.claude
+tealpine
