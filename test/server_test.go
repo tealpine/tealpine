@@ -188,7 +188,7 @@ func TestServer(t *testing.T) {
 	}
 
 	// 4. Create and initialize server
-	s := server.NewServer(cfg)
+	s := server.NewServer(cfg, "")
 	err = s.Init(ctx)
 	require.NoError(t, err)
 
@@ -619,7 +619,7 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 	}
 
 	// 4. Create and initialize proxy server
-	s := server.NewServer(cfg)
+	s := server.NewServer(cfg, "")
 	err = s.Init(ctx)
 	require.NoError(t, err)
 

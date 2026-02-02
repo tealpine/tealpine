@@ -6,16 +6,21 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
+	"tealpine/pkg/auth"
 	"tealpine/pkg/config"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
 )
 
-var ErrDisconnected = errors.New("client is disconnected")
+var (
+	ErrDisconnected  = errors.New("client is disconnected")
+	ErrLoginRequired = errors.New("upstream login required")
+)
 
 // EventType represents the type of client event
 type EventType int
@@ -27,6 +32,7 @@ const (
 	EventResourcesListChanged
 	EventPromptsListChanged
 	EventResourceTemplatesListChanged
+	EventLoginRequired
 )
 
 // String returns the string representation of the EventType
@@ -44,6 +50,8 @@ func (et EventType) String() string {
 		return "PromptsListChanged"
 	case EventResourceTemplatesListChanged:
 		return "ResourceTemplatesListChanged"
+	case EventLoginRequired:
+		return "LoginRequired"
 	default:
 		return "Unknown"
 	}
@@ -73,15 +81,17 @@ type Client struct {
 	session    *mcp.ClientSession
 	initResult *mcp.InitializeResult
 
-	mutex       sync.Mutex
-	isConnected bool
-	isClosed    bool
-	lastError   error
-	errorCh     chan struct{}
-	cancel      context.CancelFunc
-	eventCh     chan ClientEvent
-	lastEvent   ClientEvent
-	log         *logrus.Entry
+	mutex         sync.Mutex
+	isConnected   bool
+	isClosed      bool
+	loginRequired bool
+	authInfo      *auth.UpstreamAuthInfo
+	lastError     error
+	errorCh       chan struct{}
+	cancel        context.CancelFunc
+	eventCh       chan ClientEvent
+	lastEvent     ClientEvent
+	log           *logrus.Entry
 }
 
 func NewClient(cfg config.MCPConfig) *Client {
@@ -133,6 +143,35 @@ func (cs *Client) IsConnected() bool {
 	return cs.isConnected
 }
 
+// IsLoginRequired returns true if the upstream MCP server requires OIDC login
+func (cs *Client) IsLoginRequired() bool {
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+	return cs.loginRequired
+}
+
+// GetAuthInfo returns the discovered upstream auth info, or nil
+func (cs *Client) GetAuthInfo() *auth.UpstreamAuthInfo {
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+	return cs.authInfo
+}
+
+// SetBearerToken updates the bearer token, clears loginRequired, and signals reconnect
+func (cs *Client) SetBearerToken(token string) {
+	cs.mutex.Lock()
+	cs.cfg.Bearer = token
+	cs.loginRequired = false
+	cs.authInfo = nil
+	cs.mutex.Unlock()
+
+	// Signal the reconnection loop to try again
+	select {
+	case cs.errorCh <- struct{}{}:
+	default:
+	}
+}
+
 func (cs *Client) Start(ctx context.Context) {
 	clientCtx, cancel := context.WithCancel(ctx)
 	cs.cancel = cancel
@@ -140,8 +179,26 @@ func (cs *Client) Start(ctx context.Context) {
 	go cs.ping(clientCtx)
 }
 
+// GetConfig returns the client's MCP config (used by server for building redirect URLs)
+func (cs *Client) GetConfig() config.MCPConfig {
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+	return cs.cfg
+}
+
 func (cs *Client) init(ctx context.Context) error {
 	cs.log.Infof("creating new client")
+
+	// For streamablehttp without a bearer token, probe for 401
+	if cs.cfg.Transport == "streamablehttp" && cs.cfg.Bearer == "" {
+		needs401, err := auth.ProbeUpstreamAuth(cs.cfg.URL)
+		if err != nil {
+			cs.log.Warnf("failed to probe upstream auth: %v", err)
+			// Continue anyway — let the MCP connection attempt handle it
+		} else if needs401 {
+			return cs.handleUpstreamAuthRequired()
+		}
+	}
 
 	// Create client if not exists
 	if cs.client == nil {
@@ -205,6 +262,10 @@ func (cs *Client) init(ctx context.Context) error {
 	cs.log.Infof("connecting to server")
 	session, err := cs.client.Connect(ctx, transport, nil)
 	if err != nil {
+		// If streamablehttp connection failed with 401, trigger upstream auth flow
+		if cs.cfg.Transport == "streamablehttp" && strings.Contains(err.Error(), "401") {
+			return cs.handleUpstreamAuthRequired()
+		}
 		return fmt.Errorf("connection failed: %w", err)
 	}
 
@@ -410,6 +471,37 @@ func (cs *Client) ping(ctx context.Context) {
 	}
 }
 
+// handleUpstreamAuthRequired discovers auth info and marks the client as needing login.
+// Always returns ErrLoginRequired so connectLoop stops retrying.
+// If discovery fails, login_required is still set — discovery can be retried from the login handler.
+func (cs *Client) handleUpstreamAuthRequired() error {
+	cs.log.Infof("upstream server requires authentication, discovering auth endpoints")
+
+	// Determine client_id override from config
+	var clientIDOverride string
+	if cs.cfg.Auth != nil && cs.cfg.Auth.ClientID != "" {
+		clientIDOverride = cs.cfg.Auth.ClientID
+	}
+
+	authInfo, err := auth.DiscoverAndRegister(cs.cfg.URL, "", clientIDOverride)
+	if err != nil {
+		cs.log.Warnf("upstream auth discovery failed: %v", err)
+		// Still enter login_required — discovery can be retried from login handler
+	}
+
+	cs.mutex.Lock()
+	cs.authInfo = authInfo // may be nil if discovery failed
+	cs.loginRequired = true
+	cs.mutex.Unlock()
+
+	cs.emitEvent(ClientEvent{
+		Type:      EventLoginRequired,
+		Timestamp: time.Now(),
+	})
+
+	return ErrLoginRequired
+}
+
 func (cs *Client) connectLoop(ctx context.Context) {
 	select {
 	case <-ctx.Done():
@@ -422,6 +514,10 @@ func (cs *Client) connectLoop(ctx context.Context) {
 		err := cs.init(ctx)
 		if err == nil {
 			logrus.Infof("Reconnected successfully")
+			return
+		}
+		if errors.Is(err, ErrLoginRequired) {
+			logrus.Infof("Upstream login required, stopping reconnect loop")
 			return
 		}
 		logrus.Infof("Reconnect failed: %v", err)

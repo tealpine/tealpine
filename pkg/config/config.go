@@ -40,6 +40,10 @@ type AuthConfig struct {
 	RequireUserInConfig bool   `json:"require_user_in_config,omitempty"`
 }
 
+type MCPAuthConfig struct {
+	ClientID string `json:"client_id,omitempty"` // override, skip dynamic registration
+}
+
 type MCPConfig struct {
 	Name           string        `json:"-"`
 	Transport      string        `json:"transport"`
@@ -48,6 +52,7 @@ type MCPConfig struct {
 	CmdArgs        []string      `json:"args"`
 	URL            string        `json:"url"`
 	Bearer         string        `json:"bearer,omitempty"`
+	Auth           *MCPAuthConfig `json:"auth,omitempty"`
 	PingInterval   time.Duration `json:"pingInterval"`
 	ReconnectDelay time.Duration `json:"reconnectDelay"`
 }
@@ -194,6 +199,11 @@ func validateMCPConfig(name string, mcp *MCPConfig) error {
 		if mcp.URL == "" {
 			return fmt.Errorf("mcp '%s': 'url' is required when transport is '%s'", name, mcp.Transport)
 		}
+	}
+
+	// Validate Auth is only used with streamablehttp
+	if mcp.Auth != nil && mcp.Transport != "streamablehttp" {
+		return fmt.Errorf("mcp '%s': 'auth' is only allowed when transport is 'streamablehttp'", name)
 	}
 
 	return nil

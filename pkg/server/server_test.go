@@ -51,7 +51,7 @@ func TestServerWithInvalidProxyConfig(t *testing.T) {
 	}
 
 	// Create server
-	s := server.NewServer(cfg)
+	s := server.NewServer(cfg, "")
 
 	// Attempt to initialize - should fail because proxy references non-existent MCP
 	err = s.Init(ctx)
@@ -93,7 +93,7 @@ func TestServerWithEmptyProxyConfig(t *testing.T) {
 	}
 
 	// Create server
-	s := server.NewServer(cfg)
+	s := server.NewServer(cfg, "")
 
 	// Attempt to initialize - should fail because proxy has no MCP configuration
 	err = s.Init(ctx)
@@ -169,7 +169,7 @@ func TestStatusEndpoint(t *testing.T) {
 	}
 
 	// Create and initialize server
-	s := server.NewServer(cfg)
+	s := server.NewServer(cfg, "")
 	err = s.Init(ctx)
 	require.NoError(t, err)
 

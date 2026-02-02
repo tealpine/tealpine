@@ -13,40 +13,51 @@ import (
 	"tealpine/pkg/proxy"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 type Server struct {
-	cfg        *config.Config
-	clients    map[string]*client.Client
-	proxies    map[string]http.Handler
-	ginEngine  *gin.Engine
-	httpServer *http.Server
+	cfg          *config.Config
+	clients      map[string]*client.Client
+	proxies      map[string]http.Handler
+	tokenStore   *auth.TokenStore
+	sessionStore *auth.SessionStore
+	ginEngine    *gin.Engine
+	httpServer   *http.Server
 }
 
-func NewServer(cfg *config.Config) *Server {
+func NewServer(cfg *config.Config, tokensPath string) *Server {
 	return &Server{
-		cfg:     cfg,
-		clients: make(map[string]*client.Client),
-		proxies: make(map[string]http.Handler),
+		cfg:          cfg,
+		clients:      make(map[string]*client.Client),
+		proxies:      make(map[string]http.Handler),
+		tokenStore:   auth.NewTokenStore(tokensPath),
+		sessionStore: auth.NewSessionStore(),
 	}
 }
 
 // statusHandler returns the connection status of all clients
 func (s *Server) statusHandler(c *gin.Context) {
 	type ClientStatus struct {
-		Name   string `json:"name"`
-		Status string `json:"status"`
+		Name     string `json:"name"`
+		Status   string `json:"status"`
+		LoginURL string `json:"login_url,omitempty"`
 	}
 
 	statuses := make([]ClientStatus, 0, len(s.clients))
-	for name, client := range s.clients {
+	for name, cl := range s.clients {
 		status := "disconnected"
-		if client.IsConnected() {
+		var loginURL string
+		if cl.IsConnected() {
 			status = "connected"
+		} else if cl.IsLoginRequired() {
+			status = "login_required"
+			loginURL = "/upstream/" + name + "/auth/login"
 		}
 		statuses = append(statuses, ClientStatus{
-			Name:   name,
-			Status: status,
+			Name:     name,
+			Status:   status,
+			LoginURL: loginURL,
 		})
 	}
 
@@ -56,6 +67,20 @@ func (s *Server) statusHandler(c *gin.Context) {
 }
 
 func (s *Server) Init(ctx context.Context) error {
+	// 0. Load persisted tokens and inject bearer tokens into MCP configs
+	tokens, err := s.tokenStore.Load()
+	if err != nil {
+		logrus.Warnf("failed to load tokens: %v", err)
+	} else {
+		for name, token := range tokens {
+			if mcpCfg, ok := s.cfg.MCP[name]; ok && token.AccessToken != "" {
+				mcpCfg.Bearer = token.AccessToken
+				s.cfg.MCP[name] = mcpCfg
+				logrus.Infof("loaded persisted token for MCP '%s'", name)
+			}
+		}
+	}
+
 	// 1. Create and initialize all mcp clients
 	for name, mcpConfig := range s.cfg.MCP {
 		c := client.NewClient(mcpConfig)
@@ -158,6 +183,11 @@ func (s *Server) Init(ctx context.Context) error {
 	tealpineGroup.Use(adminMiddleware)
 	tealpineGroup.GET("/api/v1/status", s.statusHandler)
 
+	// Register upstream OAuth endpoints for MCP OIDC login
+	upstreamHandlers := NewUpstreamOAuthHandlers(s.clients, s.tokenStore, s.sessionStore, s.cfg.Server.Host)
+	s.ginEngine.GET("/upstream/:name/auth/login", upstreamHandlers.HandleLogin)
+	s.ginEngine.GET("/upstream/:name/auth/callback", upstreamHandlers.HandleCallback)
+
 	// Register proxy endpoints
 	for path, proxyHandler := range s.proxies {
 		s.ginEngine.Any("/"+path+"/*proxyPath", gin.WrapH(proxyHandler))
@@ -173,6 +203,11 @@ func (s *Server) Init(ctx context.Context) error {
 
 func (s *Server) WaitForClients(ctx context.Context) error {
 	for name, c := range s.clients {
+		// Skip clients that need upstream login — they'll connect after login
+		if c.IsLoginRequired() {
+			logrus.Infof("client '%s' requires upstream login, skipping wait", name)
+			continue
+		}
 		if err := c.WaitForConnection(ctx); err != nil {
 			return fmt.Errorf("failed to wait for client %s to connect: %w", name, err)
 		}

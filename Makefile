@@ -8,7 +8,11 @@ GO_BUILD=CGO_ENABLED=0 go build $(LD_FLAGS)
 
 .PHONY: build
 build:
-	$(GO_BUILD) -o $(BUILD_DIR)/ ./cmd/mcpap
+	$(GO_BUILD) -o $(BUILD_DIR)/ ./cmd/tealpine
+
+.PHONY: run
+run: build
+	$(BUILD_DIR)/tealpine
 
 .PHONY: test
 test:
