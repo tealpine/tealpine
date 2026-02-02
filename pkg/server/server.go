@@ -167,15 +167,22 @@ func (s *Server) Init(ctx context.Context) error {
 
 	// Convert HTTP middleware to Gin middleware
 	adminMiddleware := func(c *gin.Context) {
-		// Create a handler that will be wrapped by the auth middlewares
+		// Track whether the inner handler was reached (auth passed)
+		authPassed := false
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Update the gin context with the modified request (contains username in context)
+			authPassed = true
 			c.Request = r
 			c.Next()
 		})
 
 		// Apply authentication and authorization
 		authenticator.Middleware(adminAuthorizer.Middleware(handler)).ServeHTTP(c.Writer, c.Request)
+
+		// If auth middleware rejected the request (wrote 401), abort the Gin chain
+		// to prevent Gin from trying to write a 200 over the already-written headers
+		if !authPassed {
+			c.Abort()
+		}
 	}
 
 	// Register admin API endpoints with authentication and authorization
