@@ -19,6 +19,10 @@ test:
 	@echo "Running tests..."
 	@go test -race ./...
 
+.PHONY: setup-hooks
+setup-hooks:
+	git config core.hooksPath .githooks
+
 .PHONY: format
 format:
 	golangci-lint fmt --no-config --enable gofmt,goimports
