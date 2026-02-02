@@ -489,6 +489,251 @@ func TestAuthorizerMiddleware_NoResourceName(t *testing.T) {
 	require.NoError(t, err, "Should allow when resource name matches wildcard")
 }
 
+func TestAuthorizerMiddleware_WildcardMethod(t *testing.T) {
+	users := map[string]config.UserConfig{
+		"alice": {
+			Token:  "alicetoken",
+			Groups: []string{"gr1"},
+		},
+	}
+
+	authRules := []AuthRule{
+		{
+			User:   "alice",
+			Method: "*",
+			Allow:  []string{"*"},
+		},
+	}
+
+	authorizer, err := NewAuthorizer(users, authRules)
+	require.NoError(t, err)
+
+	called := false
+	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		called = true
+		return nil, nil
+	}
+
+	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
+
+	methods := []string{
+		"tools/call",
+		"tools/list",
+		"resources/read",
+		"resources/list",
+		"prompts/get",
+		"prompts/list",
+		"logging/setLevel",
+		"some/custom/method",
+	}
+
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			called = false
+			req := &mcp.ServerRequest[*mcp.CallToolParams]{
+				Params: &mcp.CallToolParams{Name: "anything"},
+			}
+			middleware := authorizer.Middleware(handler)
+			_, err := middleware(ctx, method, req)
+			require.NoError(t, err, "Wildcard method should allow %s", method)
+			require.True(t, called, "Handler should be called for %s", method)
+		})
+	}
+}
+
+func TestAuthorizerMiddleware_PrefixMethod(t *testing.T) {
+	users := map[string]config.UserConfig{
+		"alice": {
+			Token:  "alicetoken",
+			Groups: []string{"gr1"},
+		},
+	}
+
+	authRules := []AuthRule{
+		{
+			User:   "alice",
+			Method: "tools/*",
+			Allow:  []string{"*"},
+		},
+	}
+
+	authorizer, err := NewAuthorizer(users, authRules)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return nil, nil
+	}
+
+	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
+	middleware := authorizer.Middleware(handler)
+
+	tests := []struct {
+		name    string
+		method  string
+		allowed bool
+	}{
+		{"tools/call", "tools/call", true},
+		{"tools/list", "tools/list", true},
+		{"resources/read", "resources/read", false},
+		{"prompts/get", "prompts/get", false},
+		{"logging/setLevel", "logging/setLevel", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &mcp.ServerRequest[*mcp.CallToolParams]{
+				Params: &mcp.CallToolParams{Name: "anything"},
+			}
+			_, err := middleware(ctx, tt.method, req)
+			if tt.allowed {
+				require.NoError(t, err, "method %q should be allowed by pattern 'tools/*'", tt.method)
+			} else {
+				require.Error(t, err, "method %q should be denied by pattern 'tools/*'", tt.method)
+			}
+		})
+	}
+}
+
+func TestAuthorizerMiddleware_WildcardMethod_DeniedForOtherUser(t *testing.T) {
+	users := map[string]config.UserConfig{
+		"alice": {
+			Token:  "alicetoken",
+			Groups: []string{"gr1"},
+		},
+		"bob": {
+			Token:  "bobtoken",
+			Groups: []string{"gr2"},
+		},
+	}
+
+	authRules := []AuthRule{
+		{
+			User:   "alice",
+			Method: "*",
+			Allow:  []string{"*"},
+		},
+	}
+
+	authorizer, err := NewAuthorizer(users, authRules)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return nil, nil
+	}
+
+	ctx := context.WithValue(context.Background(), CtxUsernameKey, "bob")
+	req := &mcp.ServerRequest[*mcp.CallToolParams]{
+		Params: &mcp.CallToolParams{Name: "anything"},
+	}
+
+	middleware := authorizer.Middleware(handler)
+	_, err = middleware(ctx, "logging/setLevel", req)
+	require.Error(t, err, "Bob should be denied with wildcard method rule for alice only")
+	require.Contains(t, err.Error(), "access denied")
+}
+
+func TestAuthorizerMiddleware_WildcardObj(t *testing.T) {
+	users := map[string]config.UserConfig{
+		"alice": {
+			Token:  "alicetoken",
+			Groups: []string{"gr1"},
+		},
+	}
+
+	authRules := []AuthRule{
+		{
+			User:   "alice",
+			Method: "tools/call",
+			Allow:  []string{"*"},
+		},
+	}
+
+	authorizer, err := NewAuthorizer(users, authRules)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return nil, nil
+	}
+
+	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
+	middleware := authorizer.Middleware(handler)
+
+	// obj values without slash — globMatch("mytool", "*") should work
+	tests := []struct {
+		name string
+		obj  string
+	}{
+		{"simple_name", "mytool"},
+		{"hyphenated", "my-tool"},
+		{"underscored", "my_tool"},
+		{"uri_with_slashes", "file:///home/user/doc.txt"},
+		{"path_like", "some/nested/resource"},
+		{"url", "https://example.com/resource"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &mcp.ServerRequest[*mcp.CallToolParams]{
+				Params: &mcp.CallToolParams{Name: tt.obj},
+			}
+			_, err := middleware(ctx, "tools/call", req)
+			require.NoError(t, err, "allow pattern '*' should match obj %q", tt.obj)
+		})
+	}
+}
+
+func TestAuthorizerMiddleware_GlobPatternObj(t *testing.T) {
+	users := map[string]config.UserConfig{
+		"alice": {
+			Token:  "alicetoken",
+			Groups: []string{"gr1"},
+		},
+	}
+
+	authRules := []AuthRule{
+		{
+			User:   "alice",
+			Method: "resources/read",
+			Allow:  []string{"file://*"},
+		},
+	}
+
+	authorizer, err := NewAuthorizer(users, authRules)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return nil, nil
+	}
+
+	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
+	middleware := authorizer.Middleware(handler)
+
+	tests := []struct {
+		name    string
+		uri     string
+		allowed bool
+	}{
+		{"file_shallow", "file://readme.txt", true},
+		{"file_deep_path", "file:///home/user/doc.txt", true},
+		{"https_blocked", "https://example.com/resource", false},
+		{"no_scheme", "readme.txt", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &mcp.ServerRequest[*mcp.ReadResourceParams]{
+				Params: &mcp.ReadResourceParams{URI: tt.uri},
+			}
+			_, err := middleware(ctx, "resources/read", req)
+			if tt.allowed {
+				require.NoError(t, err, "pattern 'file://*' should match %q", tt.uri)
+			} else {
+				require.Error(t, err, "pattern 'file://*' should NOT match %q", tt.uri)
+			}
+		})
+	}
+}
+
 func TestFilteringMiddleware_ToolsList_FilterByPermission(t *testing.T) {
 	users := map[string]config.UserConfig{
 		"alice": {

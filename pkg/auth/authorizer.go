@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
@@ -53,13 +54,28 @@ func NewAuthorizer(users map[string]config.UserConfig, authRules []AuthRule) (*A
 	m.AddDef("p", "p", "sub, method, obj")
 	m.AddDef("g", "g", "_, _")
 	m.AddDef("e", "e", "some(where (p.eft == allow))")
-	m.AddDef("m", "m", "g(r.sub, p.sub) && r.method == p.method && globMatch(r.obj, p.obj)")
+	m.AddDef("m", "m", "g(r.sub, p.sub) && prefixMatch(r.method, p.method) && prefixMatch(r.obj, p.obj)")
 
 	// Create enforcer
 	enforcer, err := casbin.NewEnforcer(m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create casbin enforcer: %w", err)
 	}
+
+	// Register prefixMatch: if pattern ends with *, strip it and do prefix match;
+	// otherwise exact match. This allows patterns like "file://*" to match
+	// "file:///home/user/doc.txt" (globMatch can't because * doesn't cross /).
+	enforcer.AddFunction("prefixMatch", func(args ...interface{}) (interface{}, error) {
+		str, ok1 := args[0].(string)
+		pattern, ok2 := args[1].(string)
+		if !ok1 || !ok2 {
+			return false, nil
+		}
+		if strings.HasSuffix(pattern, "*") {
+			return strings.HasPrefix(str, strings.TrimSuffix(pattern, "*")), nil
+		}
+		return str == pattern, nil
+	})
 
 	// Add user to group mappings with group: prefix to avoid conflicts
 	for username, userConfig := range users {
