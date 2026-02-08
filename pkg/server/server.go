@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 
 	"tealpine/pkg/auth"
@@ -17,13 +18,14 @@ import (
 )
 
 type Server struct {
-	cfg          *config.Config
-	clients      map[string]*client.Client
-	proxies      map[string]http.Handler
-	tokenStore   *auth.TokenStore
-	sessionStore *auth.SessionStore
-	ginEngine    *gin.Engine
-	httpServer   *http.Server
+	cfg            *config.Config
+	clients        map[string]*client.Client
+	proxies        map[string]http.Handler
+	tokenStore     *auth.TokenStore
+	sessionStore   *auth.SessionStore
+	ginEngine      *gin.Engine
+	httpServer     *http.Server
+	cancelRequests context.CancelFunc // cancels all active HTTP request contexts
 }
 
 func NewServer(cfg *config.Config, tokensPath string) *Server {
@@ -200,9 +202,18 @@ func (s *Server) Init(ctx context.Context) error {
 		s.ginEngine.Any("/"+path+"/*proxyPath", gin.WrapH(proxyHandler))
 	}
 
+	// Create a cancellable context for all HTTP requests.
+	// Cancelling it terminates long-lived connections (SSE streams)
+	// so httpServer.Shutdown can complete promptly.
+	reqCtx, reqCancel := context.WithCancel(context.Background())
+	s.cancelRequests = reqCancel
+
 	s.httpServer = &http.Server{
 		Addr:    s.cfg.Server.Host,
 		Handler: s.ginEngine,
+		BaseContext: func(_ net.Listener) context.Context {
+			return reqCtx
+		},
 	}
 
 	return nil
@@ -235,14 +246,25 @@ func (s *Server) Run() error {
 }
 
 func (s *Server) Stop(ctx context.Context) error {
-	// Close clients
+	// 1. Cancel all active request contexts (terminates SSE streams)
+	if s.cancelRequests != nil {
+		s.cancelRequests()
+	}
+
+	// 2. Shutdown HTTP server — stops accepting new connections
+	// and waits for active handlers to finish (they should exit
+	// promptly now that their contexts are cancelled)
+	if s.httpServer != nil {
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			log.Printf("Error shutting down HTTP server: %v", err)
+		}
+	}
+
+	// 2. Close clients after proxy handlers have returned
 	for name, c := range s.clients {
 		if err := c.Close(); err != nil {
 			log.Printf("Error closing client %s: %v", name, err)
 		}
-	}
-	if s.httpServer != nil {
-		return s.httpServer.Shutdown(ctx)
 	}
 	return nil
 }

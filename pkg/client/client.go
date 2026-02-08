@@ -363,13 +363,16 @@ func (cs *Client) Close() error {
 	}
 
 	cs.isClosed = true
-	cs.cancel()
 
+	// Close session before cancelling context so cleanup requests
+	// (e.g. DELETE for streamablehttp) can complete
+	var err error
 	if cs.session != nil {
-		return cs.session.Close()
+		err = cs.session.Close()
 	}
 
-	return nil
+	cs.cancel()
+	return err
 }
 
 // WaitForEvent waits for a client event matching the specified types
