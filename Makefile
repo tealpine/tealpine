@@ -17,7 +17,10 @@ run: build
 .PHONY: test
 test:
 	@echo "Running tests..."
-	@go test -race ./...
+	@go test -race -coverprofile=coverage.out ./...
+	@grep -v '^tealpine/test/' coverage.out > coverage.filtered.out
+	@go tool cover -func=coverage.filtered.out | grep total | awk '{print "Total coverage: " $$3}'
+	@rm -f coverage.out coverage.filtered.out
 
 .PHONY: setup-hooks
 setup-hooks:
