@@ -5,5 +5,5 @@ build/
 config.json
 notes.md
 .claude
-tealpine
+./tealpine
 tokens.json
