@@ -192,6 +192,63 @@ func TestAuthorizerMiddleware_NotificationsInitialized_Allowed(t *testing.T) {
 	require.True(t, called, "Handler should be called for notifications/initialized method")
 }
 
+func TestAuthorizerMiddleware_PingMethod_Allowed(t *testing.T) {
+	users := map[string]config.UserConfig{
+		"alice": {
+			Token:  "alicetoken",
+			Groups: []string{"gr1"},
+		},
+		"bob": {
+			Token:  "bobtoken",
+			Groups: []string{"gr2"},
+		},
+	}
+
+	authRules := []AuthRule{
+		{
+			User:   "alice",
+			Method: "tools/call",
+			Allow:  []string{"temp_*"},
+		},
+	}
+
+	authorizer, err := NewAuthorizer(users, authRules)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return nil, nil
+	}
+
+	middleware := authorizer.Middleware(handler)
+
+	// Both alice and bob should be allowed to call ping, even though bob has no rules
+	for _, username := range []string{"alice", "bob"} {
+		t.Run(username, func(t *testing.T) {
+			called := false
+			h := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+				called = true
+				return nil, nil
+			}
+			mw := authorizer.Middleware(h)
+			ctx := context.WithValue(context.Background(), CtxUsernameKey, username)
+			req := &mcp.ServerRequest[*mcp.PingParams]{
+				Params: &mcp.PingParams{},
+			}
+			_, err := mw(ctx, "ping", req)
+			require.NoError(t, err, "ping should be allowed for %s", username)
+			require.True(t, called, "Handler should be called for %s", username)
+		})
+	}
+
+	// Verify it's not a blanket bypass — bob should still be denied tools/call
+	ctx := context.WithValue(context.Background(), CtxUsernameKey, "bob")
+	req := &mcp.ServerRequest[*mcp.CallToolParams]{
+		Params: &mcp.CallToolParams{Name: "temp_get"},
+	}
+	_, err = middleware(ctx, "tools/call", req)
+	require.Error(t, err, "bob should still be denied tools/call")
+}
+
 func TestAuthorizerMiddleware_UserDirectPermission_Allowed(t *testing.T) {
 	users := map[string]config.UserConfig{
 		"alice": {

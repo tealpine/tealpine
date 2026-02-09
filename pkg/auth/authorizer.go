@@ -145,9 +145,9 @@ func (a *Authorizer) Middleware(next mcp.MethodHandler) mcp.MethodHandler {
 }
 
 func (a *Authorizer) authorize(ctx context.Context, method string, req mcp.Request, username string) error {
-	// Always allow initialization and notification methods
+	// Always allow initialization, notification, and ping methods
 	switch method {
-	case "initialize", "notifications/initialized":
+	case "initialize", "notifications/initialized", "ping":
 		return nil
 	}
 
