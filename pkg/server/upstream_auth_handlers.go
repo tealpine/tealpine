@@ -24,6 +24,7 @@ type UpstreamOAuthHandlers struct {
 	tokenStore   *auth.TokenStore
 	sessionStore *auth.SessionStore
 	serverHost   string
+	cookieSecure bool
 }
 
 // NewUpstreamOAuthHandlers creates a new UpstreamOAuthHandlers instance
@@ -32,12 +33,14 @@ func NewUpstreamOAuthHandlers(
 	tokenStore *auth.TokenStore,
 	sessionStore *auth.SessionStore,
 	serverHost string,
+	cookieSecure bool,
 ) *UpstreamOAuthHandlers {
 	return &UpstreamOAuthHandlers{
 		clients:      clients,
 		tokenStore:   tokenStore,
 		sessionStore: sessionStore,
 		serverHost:   serverHost,
+		cookieSecure: cookieSecure,
 	}
 }
 
@@ -130,7 +133,7 @@ func (h *UpstreamOAuthHandlers) HandleLogin(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
 			return
 		}
-		auth.SetSessionCookie(c.Writer, sessionID)
+		auth.SetSessionCookie(c.Writer, sessionID, h.cookieSecure)
 	}
 
 	if err := h.sessionStore.StoreOAuthState(sessionID, state, codeVerifier); err != nil {

@@ -19,9 +19,19 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Host  string      `json:"host"`
-	Admin Admin       `json:"admin"`
-	Auth  *AuthConfig `json:"auth,omitempty"`
+	Host             string      `json:"host"`
+	Admin            Admin       `json:"admin"`
+	Auth             *AuthConfig `json:"auth,omitempty"`
+	CORSAllowOrigin  string      `json:"cors_allow_origin,omitempty"`
+	AuthCookieSecure *bool       `json:"auth_cookie_secure,omitempty"`
+}
+
+// GetAuthCookieSecure returns the AuthCookieSecure value, defaulting to true if not set.
+func (s *ServerConfig) GetAuthCookieSecure() bool {
+	if s.AuthCookieSecure == nil {
+		return true
+	}
+	return *s.AuthCookieSecure
 }
 
 type Admin struct {

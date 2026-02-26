@@ -138,7 +138,7 @@ func (s *SessionStore) cleanupExpired() {
 }
 
 // SetSessionCookie sets a session cookie in the HTTP response
-func SetSessionCookie(w http.ResponseWriter, sessionID string) {
+func SetSessionCookie(w http.ResponseWriter, sessionID string, secure bool) {
 	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sessionID,
@@ -146,9 +146,7 @@ func SetSessionCookie(w http.ResponseWriter, sessionID string) {
 		MaxAge:   sessionMaxAge,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		// Secure should be true in production (HTTPS)
-		// For development with HTTP, set to false
-		Secure: false, // TODO: implement dev/prod mode
+		Secure:   secure,
 	}
 	http.SetCookie(w, cookie)
 }

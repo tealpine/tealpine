@@ -16,7 +16,11 @@ import (
 )
 
 func main() {
-	println("MCP-AUTH-PROXY")
+	fmt.Println("██████ ▄▄▄▄▄  ▄▄▄  ▄▄    █████▄ ▄▄ ▄▄  ▄▄ ▄▄▄▄▄")
+	fmt.Println("  ██   ██▄▄  ██▀██ ██    ██▄▄█▀ ██ ███▄██ ██▄▄ ")
+	fmt.Println("  ██   ██▄▄▄ ██▀██ ██▄▄▄ ██     ██ ██ ▀██ ██▄▄▄")
+	fmt.Println()
+	fmt.Println()
 
 	// Define command-line flags
 	configFile := flag.String("config", "./config.json", "Path to configuration file")

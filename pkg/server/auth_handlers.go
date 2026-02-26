@@ -11,13 +11,15 @@ import (
 
 // OAuthHandlers holds OAuth-related HTTP handlers
 type OAuthHandlers struct {
-	authenticator *auth.Authenticator
+	authenticator    *auth.Authenticator
+	cookieSecure     bool
 }
 
 // NewOAuthHandlers creates a new OAuthHandlers instance
-func NewOAuthHandlers(authenticator *auth.Authenticator) *OAuthHandlers {
+func NewOAuthHandlers(authenticator *auth.Authenticator, cookieSecure bool) *OAuthHandlers {
 	return &OAuthHandlers{
 		authenticator: authenticator,
+		cookieSecure:  cookieSecure,
 	}
 }
 
@@ -40,7 +42,7 @@ func (h *OAuthHandlers) HandleLogin(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 			return
 		}
-		auth.SetSessionCookie(c.Writer, sessionID)
+		auth.SetSessionCookie(c.Writer, sessionID, h.cookieSecure)
 	}
 
 	// Generate PKCE code verifier (43-128 random bytes, base64url)
@@ -167,7 +169,7 @@ func (h *OAuthHandlers) HandleCallback(c *gin.Context) {
 	}
 
 	// Set new session cookie
-	auth.SetSessionCookie(c.Writer, newSessionID)
+	auth.SetSessionCookie(c.Writer, newSessionID, h.cookieSecure)
 
 	// Redirect to home page or original destination
 	c.Redirect(http.StatusFound, "/")

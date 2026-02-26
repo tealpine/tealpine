@@ -144,7 +144,7 @@ func (s *Server) Init(ctx context.Context) error {
 	// 3. Create Gin engine and http server
 	s.ginEngine = gin.New()
 	s.ginEngine.Use(gin.Recovery())
-	s.ginEngine.Use(CORSMiddleware())
+	s.ginEngine.Use(CORSMiddleware(s.cfg.Server.CORSAllowOrigin))
 
 	// Create authenticator and admin authorizer for /tealpine endpoints
 	authenticator := auth.NewAuthenticator(s.cfg.Users, s.cfg.Server.Auth)
@@ -152,7 +152,7 @@ func (s *Server) Init(ctx context.Context) error {
 
 	// Register OAuth endpoints if OIDC is enabled
 	if s.cfg.Server.Auth != nil && s.cfg.Server.Auth.Type == "oidc" {
-		oauthHandlers := NewOAuthHandlers(authenticator)
+		oauthHandlers := NewOAuthHandlers(authenticator, s.cfg.Server.GetAuthCookieSecure())
 		// Use Any() to handle all HTTP methods including OPTIONS for CORS preflight
 		s.ginEngine.Any("/auth/login", oauthHandlers.HandleLogin)
 		s.ginEngine.Any("/auth/callback", oauthHandlers.HandleCallback)
@@ -193,7 +193,7 @@ func (s *Server) Init(ctx context.Context) error {
 	tealpineGroup.GET("/api/v1/status", s.statusHandler)
 
 	// Register upstream OAuth endpoints for MCP OIDC login
-	upstreamHandlers := NewUpstreamOAuthHandlers(s.clients, s.tokenStore, s.sessionStore, s.cfg.Server.Host)
+	upstreamHandlers := NewUpstreamOAuthHandlers(s.clients, s.tokenStore, s.sessionStore, s.cfg.Server.Host, s.cfg.Server.GetAuthCookieSecure())
 	s.ginEngine.GET("/upstream/:name/auth/login", upstreamHandlers.HandleLogin)
 	s.ginEngine.GET("/upstream/:name/auth/callback", upstreamHandlers.HandleCallback)
 

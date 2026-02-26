@@ -4,11 +4,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CORSMiddleware adds CORS headers to all responses
-func CORSMiddleware() gin.HandlerFunc {
+// CORSMiddleware adds CORS headers to all responses.
+// allowOrigin sets the Access-Control-Allow-Origin header; if empty, the header is not set.
+func CORSMiddleware(allowOrigin string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Allow all origins (adjust for production)
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*") //TODO: do not use *
+		if allowOrigin != "" {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+		}
 
 		// Allow common HTTP methods
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD")
