@@ -75,26 +75,26 @@ func (s *Server) Init(ctx context.Context) error {
 		logrus.Warnf("failed to load tokens: %v", err)
 	} else {
 		for name, token := range tokens {
-			if mcpCfg, ok := s.cfg.MCP[name]; ok && token.AccessToken != "" {
-				mcpCfg.Bearer = token.AccessToken
-				s.cfg.MCP[name] = mcpCfg
-				logrus.Infof("loaded persisted token for MCP '%s'", name)
+			if upstreamCfg, ok := s.cfg.Upstream[name]; ok && token.AccessToken != "" {
+				upstreamCfg.Bearer = token.AccessToken
+				s.cfg.Upstream[name] = upstreamCfg
+				logrus.Infof("loaded persisted token for upstream '%s'", name)
 			}
 		}
 	}
 
-	// 1. Create and initialize all mcp clients
-	for name, mcpConfig := range s.cfg.MCP {
-		c := client.NewClient(mcpConfig)
+	// 1. Create and initialize all upstream clients
+	for name, upstreamConfig := range s.cfg.Upstream {
+		c := client.NewClient(upstreamConfig)
 		s.clients[name] = c
 		c.Start(ctx)
 	}
 
-	// 2. Create and initialize all proxies
-	for name, proxyConfig := range s.cfg.Proxy {
+	// 2. Create and initialize all MCPs
+	for name, mcpConfig := range s.cfg.MCPs {
 		// Build auth rules for authorization
-		authRules := make([]auth.AuthRule, 0, len(proxyConfig.Auth))
-		for _, rule := range proxyConfig.Auth {
+		authRules := make([]auth.AuthRule, 0, len(mcpConfig.Auth))
+		for _, rule := range mcpConfig.Auth {
 			authRules = append(authRules, auth.AuthRule{
 				User:   rule.User,
 				Group:  rule.Group,
@@ -109,16 +109,16 @@ func (s *Server) Init(ctx context.Context) error {
 		// Create authorizer (MCP middleware for Casbin enforcement)
 		authorizer, err := auth.NewAuthorizer(s.cfg.Users, authRules)
 		if err != nil {
-			return fmt.Errorf("failed to create authorizer for proxy %s: %w", name, err)
+			return fmt.Errorf("failed to create authorizer for mcp %s: %w", name, err)
 		}
 
 		var proxyHandler http.Handler
-		if proxyConfig.MCP != "" { // Single Proxy
-			c, ok := s.clients[proxyConfig.MCP]
+		if mcpConfig.Upstream != "" { // Single Proxy
+			c, ok := s.clients[mcpConfig.Upstream]
 			if !ok {
-				return fmt.Errorf("client not found for proxy %s: %s", name, proxyConfig.MCP)
+				return fmt.Errorf("client not found for mcp %s: %s", name, mcpConfig.Upstream)
 			}
-			singleProxy, err := proxy.NewSingleProxy(proxyConfig.Transport, c, proxyConfig.Path, authenticator, authorizer)
+			singleProxy, err := proxy.NewSingleProxy(mcpConfig.Transport, c, mcpConfig.Path, authenticator, authorizer)
 			if err != nil {
 				return fmt.Errorf("failed to create single proxy %s: %w", name, err)
 			}
@@ -126,8 +126,8 @@ func (s *Server) Init(ctx context.Context) error {
 				return fmt.Errorf("failed to initialize single proxy %s: %w", name, err)
 			}
 			proxyHandler = singleProxy
-		} else if len(proxyConfig.MCPs) > 0 { // Multi Proxy
-			multiProxy, err := proxy.NewMultiProxy(proxyConfig.Transport, s.clients, proxyConfig.MCPs, proxyConfig.Path, authenticator, authorizer)
+		} else if len(mcpConfig.Upstreams) > 0 { // Multi Proxy
+			multiProxy, err := proxy.NewMultiProxy(mcpConfig.Transport, s.clients, mcpConfig.Upstreams, mcpConfig.Path, authenticator, authorizer)
 			if err != nil {
 				return fmt.Errorf("failed to create multi proxy %s: %w", name, err)
 			}
@@ -136,9 +136,9 @@ func (s *Server) Init(ctx context.Context) error {
 			}
 			proxyHandler = multiProxy
 		} else {
-			return fmt.Errorf("proxy %s has no mcp or mcps configuration", name)
+			return fmt.Errorf("mcp %s has no upstream or upstreams configuration", name)
 		}
-		s.proxies[proxyConfig.Path] = proxyHandler
+		s.proxies[mcpConfig.Path] = proxyHandler
 	}
 
 	// 3. Create Gin engine and http server

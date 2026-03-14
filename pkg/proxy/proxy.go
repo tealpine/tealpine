@@ -550,7 +550,7 @@ type MultiProxy struct {
 	transport              string
 	path                   string
 	clients                map[string]*client.Client
-	mcps                   []config.MultiMCPConfig
+	upstreams              []config.MultiUpstreamConfig
 	ctx                    context.Context
 	mu                     sync.RWMutex        // protects registeredTools, registeredRes, registeredResTemplates, registeredPropts
 	registeredTools        map[string][]string // client name -> tool names
@@ -563,7 +563,7 @@ type MultiProxy struct {
 func NewMultiProxy(
 	transport string,
 	clients map[string]*client.Client,
-	mcps []config.MultiMCPConfig,
+	upstreams []config.MultiUpstreamConfig,
 	path string,
 	authenticator *auth.Authenticator,
 	authorizer *auth.Authorizer,
@@ -578,7 +578,7 @@ func NewMultiProxy(
 		transport:              transport,
 		path:                   path,
 		clients:                clients,
-		mcps:                   mcps,
+		upstreams:              upstreams,
 		registeredTools:        make(map[string][]string),
 		registeredRes:          make(map[string][]string),
 		registeredResTemplates: make(map[string][]string),
@@ -591,21 +591,21 @@ func (p *MultiProxy) Init(ctx context.Context) error {
 	p.ctx = ctx
 
 	// Set up initial handlers and start watching for connection events for each client
-	for _, mcpConfig := range p.mcps {
-		client, ok := p.clients[mcpConfig.Name]
+	for _, upstreamConfig := range p.upstreams {
+		client, ok := p.clients[upstreamConfig.Name]
 		if !ok {
-			return fmt.Errorf("client not found for mcp config: %s", mcpConfig.Name)
+			return fmt.Errorf("client not found for upstream config: %s", upstreamConfig.Name)
 		}
 
 		// If client is already connected, set up handlers immediately
 		if initResult := client.GetInitResult(); initResult != nil {
-			if err := p.setupProxyHandlers(ctx, client, initResult, mcpConfig.Name, mcpConfig.Prefix); err != nil {
-				return fmt.Errorf("failed to setup proxy handlers for client %s: %w", mcpConfig.Name, err)
+			if err := p.setupProxyHandlers(ctx, client, initResult, upstreamConfig.Name, upstreamConfig.Prefix); err != nil {
+				return fmt.Errorf("failed to setup proxy handlers for client %s: %w", upstreamConfig.Name, err)
 			}
 		}
 
 		// Start a goroutine to watch for connection/reconnection events
-		go p.watchClientConnectionEvents(ctx, mcpConfig.Name, mcpConfig.Prefix)
+		go p.watchClientConnectionEvents(ctx, upstreamConfig.Name, upstreamConfig.Prefix)
 	}
 
 	return nil

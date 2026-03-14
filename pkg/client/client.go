@@ -76,7 +76,7 @@ func (t *BearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, erro
 }
 
 type Client struct {
-	cfg        config.MCPConfig
+	cfg        config.UpstreamConfig
 	client     *mcp.Client
 	session    *mcp.ClientSession
 	initResult *mcp.InitializeResult
@@ -94,7 +94,7 @@ type Client struct {
 	log           *logrus.Entry
 }
 
-func NewClient(cfg config.MCPConfig) *Client {
+func NewClient(cfg config.UpstreamConfig) *Client {
 	if cfg.PingInterval == 0 {
 		cfg.PingInterval = 30 * time.Second
 	}
@@ -179,8 +179,8 @@ func (cs *Client) Start(ctx context.Context) {
 	go cs.ping(clientCtx)
 }
 
-// GetConfig returns the client's MCP config (used by server for building redirect URLs)
-func (cs *Client) GetConfig() config.MCPConfig {
+// GetConfig returns the client's upstream config (used by server for building redirect URLs)
+func (cs *Client) GetConfig() config.UpstreamConfig {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
 	return cs.cfg

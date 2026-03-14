@@ -28,7 +28,7 @@ func TestClientWithStreamableHTTPServer(t *testing.T) {
 	defer testServer.Close()
 
 	// Create client configuration pointing to the test server
-	cfg := config.MCPConfig{
+	cfg := config.UpstreamConfig{
 		Name:      "temperature-test",
 		Transport: "streamablehttp",
 		URL:       testServer.URL + "/mcp",
@@ -116,7 +116,7 @@ func TestClientWithStreamableHTTPCalculator(t *testing.T) {
 	defer testServer.Close()
 
 	// Create client configuration pointing to the test server
-	cfg := config.MCPConfig{
+	cfg := config.UpstreamConfig{
 		Name:      "calculator-test",
 		Transport: "streamablehttp",
 		URL:       testServer.URL + "/mcp",
@@ -233,7 +233,7 @@ func TestClientWithStreamableHTTPCalculator(t *testing.T) {
 func TestClientWithStdioServer(t *testing.T) {
 	// Create client configuration for stdio hello server
 	// The command will run the hello MCP server via stdio
-	cfg := config.MCPConfig{
+	cfg := config.UpstreamConfig{
 		Name:      "hello-test",
 		Transport: "stdio",
 		Cmd:       "go",
@@ -323,7 +323,7 @@ func TestClientWithBearerToken_StreamableHTTP(t *testing.T) {
 	defer testServer.Close()
 
 	// Create client configuration with Bearer token
-	cfg := config.MCPConfig{
+	cfg := config.UpstreamConfig{
 		Name:      "temperature-Bearer-test",
 		Transport: "streamablehttp",
 		URL:       testServer.URL + "/mcp",
@@ -393,7 +393,7 @@ func TestClientWithoutBearerToken(t *testing.T) {
 	defer testServer.Close()
 
 	// Create client configuration WITHOUT Bearer token
-	cfg := config.MCPConfig{
+	cfg := config.UpstreamConfig{
 		Name:      "calculator-no-Bearer-test",
 		Transport: "streamablehttp",
 		URL:       testServer.URL + "/mcp",
@@ -430,7 +430,7 @@ func TestClientToolsListChangedEvent(t *testing.T) {
 	defer testServer.Close()
 
 	// Create client configuration
-	cfg := config.MCPConfig{
+	cfg := config.UpstreamConfig{
 		Name:      "notification-test",
 		Transport: "streamablehttp",
 		URL:       testServer.URL + "/mcp",

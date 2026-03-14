@@ -1,6 +1,6 @@
 
 
-BUILD_DIR=./build
+BUILD_DIR=./
 BUILD=$(shell git rev-parse --short HEAD)@$(shell date +%s)
 LD_FLAGS=-ldflags "-X main.BuildVersion=$(BUILD)"
 GO=go

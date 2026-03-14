@@ -28,24 +28,24 @@ func TestServerWithInvalidProxyConfig(t *testing.T) {
 	calcUpstreamServer := httptest.NewServer(calcHandler)
 	defer calcUpstreamServer.Close()
 
-	// Create configuration with invalid proxy config (references non-existent MCP)
+	// Create configuration with invalid mcp config (references non-existent upstream)
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: "localhost:0",
 		},
-		MCP: map[string]config.MCPConfig{
+		Upstream: map[string]config.UpstreamConfig{
 			"calculator": {
 				Name:      "calculator",
 				Transport: "streamablehttp",
 				URL:       calcUpstreamServer.URL + "/mcp",
 			},
 		},
-		Proxy: map[string]config.ProxyConfig{
+		MCPs: map[string]config.MCPConfig{
 			"invalid": {
 				Name:      "invalid",
 				Path:      "invalid",
 				Transport: "streamablehttp",
-				MCP:       "nonexistent", // References non-existent MCP
+				Upstream:  "nonexistent", // References non-existent upstream
 			},
 		},
 	}
@@ -70,24 +70,24 @@ func TestServerWithEmptyProxyConfig(t *testing.T) {
 	calcUpstreamServer := httptest.NewServer(calcHandler)
 	defer calcUpstreamServer.Close()
 
-	// Create configuration with empty proxy config (no MCP or MCPs specified)
+	// Create configuration with empty mcp config (no upstream or upstreams specified)
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: "localhost:0",
 		},
-		MCP: map[string]config.MCPConfig{
+		Upstream: map[string]config.UpstreamConfig{
 			"calculator": {
 				Name:      "calculator",
 				Transport: "streamablehttp",
 				URL:       calcUpstreamServer.URL + "/mcp",
 			},
 		},
-		Proxy: map[string]config.ProxyConfig{
+		MCPs: map[string]config.MCPConfig{
 			"empty": {
 				Name:      "empty",
 				Path:      "empty",
 				Transport: "streamablehttp",
-				// No MCP or MCPs specified
+				// No upstream or upstreams specified
 			},
 		},
 	}
@@ -98,7 +98,7 @@ func TestServerWithEmptyProxyConfig(t *testing.T) {
 	// Attempt to initialize - should fail because proxy has no MCP configuration
 	err = s.Init(ctx)
 	require.Error(t, err, "Init should return an error when proxy has no MCP configuration")
-	require.Contains(t, err.Error(), "has no mcp or mcps configuration", "Error should indicate missing MCP configuration")
+	require.Contains(t, err.Error(), "has no upstream or upstreams configuration", "Error should indicate missing upstream configuration")
 }
 
 func TestStatusEndpoint(t *testing.T) {
@@ -124,7 +124,7 @@ func TestStatusEndpoint(t *testing.T) {
 	serverAddr := listener.Addr().String()
 	listener.Close()
 
-	// Create configuration with two MCP clients
+	// Create configuration with two upstream clients
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: serverAddr,
@@ -132,7 +132,7 @@ func TestStatusEndpoint(t *testing.T) {
 				Users: []string{"admin"},
 			},
 		},
-		MCP: map[string]config.MCPConfig{
+		Upstream: map[string]config.UpstreamConfig{
 			"calculator1": {
 				Name:         "calculator1",
 				Transport:    "streamablehttp",
@@ -146,18 +146,18 @@ func TestStatusEndpoint(t *testing.T) {
 				PingInterval: 2 * time.Second, // Short interval for faster test
 			},
 		},
-		Proxy: map[string]config.ProxyConfig{
+		MCPs: map[string]config.MCPConfig{
 			"calc1": {
 				Name:      "calc1",
 				Path:      "calc1",
 				Transport: "streamablehttp",
-				MCP:       "calculator1",
+				Upstream:  "calculator1",
 			},
 			"calc2": {
 				Name:      "calc2",
 				Path:      "calc2",
 				Transport: "streamablehttp",
-				MCP:       "calculator2",
+				Upstream:  "calculator2",
 			},
 		},
 		Users: map[string]config.UserConfig{

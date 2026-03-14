@@ -62,7 +62,7 @@ func TestServer(t *testing.T) {
 		Server: config.ServerConfig{
 			Host: serverAddr,
 		},
-		MCP: map[string]config.MCPConfig{
+		Upstream: map[string]config.UpstreamConfig{
 			"calculator": {
 				Name:      "calculator",
 				Transport: "streamablehttp",
@@ -87,12 +87,12 @@ func TestServer(t *testing.T) {
 				},
 			},
 		},
-		Proxy: map[string]config.ProxyConfig{
+		MCPs: map[string]config.MCPConfig{
 			"calc": {
 				Name:      "calc",
 				Path:      "calc",
 				Transport: "streamablehttp",
-				MCP:       "calculator",
+				Upstream:  "calculator",
 				Auth: []config.AuthRule{
 					{
 						User:   "test-user",
@@ -110,7 +110,7 @@ func TestServer(t *testing.T) {
 				Name:      "temp",
 				Path:      "temp",
 				Transport: "streamablehttp",
-				MCP:       "temperature",
+				Upstream:  "temperature",
 				Auth: []config.AuthRule{
 					{
 						User:   "test-user",
@@ -128,7 +128,7 @@ func TestServer(t *testing.T) {
 				Name:      "hello",
 				Path:      "hello",
 				Transport: "streamablehttp",
-				MCP:       "hello",
+				Upstream:  "hello",
 				Auth: []config.AuthRule{
 					{
 						Group:  "admins",
@@ -146,7 +146,7 @@ func TestServer(t *testing.T) {
 				Name:      "multi",
 				Path:      "multi",
 				Transport: "streamablehttp",
-				MCPs: []config.MultiMCPConfig{
+				Upstreams: []config.MultiUpstreamConfig{
 					{Name: "calculator", Prefix: "calc"},
 					{Name: "temperature", Prefix: "temp"},
 					{Name: "hello", Prefix: "hello"},
@@ -585,7 +585,7 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 		Server: config.ServerConfig{
 			Host: serverAddr,
 		},
-		MCP: map[string]config.MCPConfig{
+		Upstream: map[string]config.UpstreamConfig{
 			"calculator": {
 				Name:           "calculator",
 				Transport:      "streamablehttp",
@@ -595,12 +595,12 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 				PingInterval:   500 * time.Millisecond,
 			},
 		},
-		Proxy: map[string]config.ProxyConfig{
+		MCPs: map[string]config.MCPConfig{
 			"calc": {
 				Name:      "calc",
 				Path:      "calc",
 				Transport: "streamablehttp",
-				MCP:       "calculator",
+				Upstream:  "calculator",
 				Auth: []config.AuthRule{
 					{
 						User:   "test-user",

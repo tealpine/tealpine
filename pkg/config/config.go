@@ -12,10 +12,10 @@ import (
 )
 
 type Config struct {
-	Server ServerConfig           `json:"server"`
-	MCP    map[string]MCPConfig   `json:"mcp"`
-	Proxy  map[string]ProxyConfig `json:"proxy"`
-	Users  map[string]UserConfig  `json:"users"`
+	Server   ServerConfig               `json:"server"`
+	Upstream map[string]UpstreamConfig  `json:"upstream"`
+	MCPs     map[string]MCPConfig       `json:"mcps"`
+	Users    map[string]UserConfig      `json:"users"`
 }
 
 type ServerConfig struct {
@@ -50,33 +50,33 @@ type AuthConfig struct {
 	RequireUserInConfig bool   `json:"require_user_in_config,omitempty"`
 }
 
-type MCPAuthConfig struct {
+type UpstreamAuthConfig struct {
 	ClientID string `json:"client_id,omitempty"` // override, skip dynamic registration
 }
 
+type UpstreamConfig struct {
+	Name           string              `json:"-"`
+	Transport      string              `json:"transport"`
+	Path           string              `json:"path"`
+	Cmd            string              `json:"cmd"`
+	CmdArgs        []string            `json:"args"`
+	URL            string              `json:"url"`
+	Bearer         string              `json:"bearer,omitempty"`
+	Auth           *UpstreamAuthConfig `json:"auth,omitempty"`
+	PingInterval   time.Duration       `json:"pingInterval"`
+	ReconnectDelay time.Duration       `json:"reconnectDelay"`
+}
+
 type MCPConfig struct {
-	Name           string        `json:"-"`
-	Transport      string        `json:"transport"`
-	Path           string        `json:"path"`
-	Cmd            string        `json:"cmd"`
-	CmdArgs        []string      `json:"args"`
-	URL            string        `json:"url"`
-	Bearer         string        `json:"bearer,omitempty"`
-	Auth           *MCPAuthConfig `json:"auth,omitempty"`
-	PingInterval   time.Duration `json:"pingInterval"`
-	ReconnectDelay time.Duration `json:"reconnectDelay"`
-}
-
-type ProxyConfig struct {
 	Name      string
-	Path      string           `json:"path"`
-	Transport string           `json:"transport"`
-	MCP       string           `json:"mcp,omitempty"`
-	MCPs      []MultiMCPConfig `json:"mcps,omitempty"`
-	Auth      []AuthRule       `json:"auth,omitempty"`
+	Path      string               `json:"path"`
+	Transport string               `json:"transport"`
+	Upstream  string               `json:"upstream,omitempty"`
+	Upstreams []MultiUpstreamConfig `json:"upstreams,omitempty"`
+	Auth      []AuthRule           `json:"auth,omitempty"`
 }
 
-type MultiMCPConfig struct {
+type MultiUpstreamConfig struct {
 	Name   string `json:"name"`
 	Prefix string `json:"prefix"`
 }
@@ -100,16 +100,16 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	// Validate MCP configurations
-	for name, mcp := range c.MCP {
-		if err := validateMCPConfig(name, &mcp); err != nil {
+	// Validate Upstream configurations
+	for name, upstream := range c.Upstream {
+		if err := validateUpstreamConfig(name, &upstream); err != nil {
 			return err
 		}
 	}
 
-	// Validate Proxy configurations
-	for name, proxy := range c.Proxy {
-		if err := validateProxyConfig(name, &proxy, c.MCP); err != nil {
+	// Validate MCP configurations
+	for name, mcp := range c.MCPs {
+		if err := validateMCPConfig(name, &mcp, c.Upstream); err != nil {
 			return err
 		}
 	}
@@ -179,70 +179,70 @@ func expandEnvVars(s string) string {
 	})
 }
 
-func validateMCPConfig(name string, mcp *MCPConfig) error {
+func validateUpstreamConfig(name string, upstream *UpstreamConfig) error {
 	// Validate transport field
 	validTransports := map[string]bool{
 		"stdio":          true,
 		"streamablehttp": true,
 	}
 
-	if !validTransports[mcp.Transport] {
-		return fmt.Errorf("mcp '%s': invalid transport '%s', must be one of: stdio, streamablehttp", name, mcp.Transport)
+	if !validTransports[upstream.Transport] {
+		return fmt.Errorf("upstream '%s': invalid transport '%s', must be one of: stdio, streamablehttp", name, upstream.Transport)
 	}
 
 	// Validate stdio transport requirements
-	if mcp.Transport == "stdio" {
-		if mcp.Cmd == "" {
-			return fmt.Errorf("mcp '%s': 'cmd' is required when transport is 'stdio'", name)
+	if upstream.Transport == "stdio" {
+		if upstream.Cmd == "" {
+			return fmt.Errorf("upstream '%s': 'cmd' is required when transport is 'stdio'", name)
 		}
-		if mcp.URL != "" {
-			return fmt.Errorf("mcp '%s': 'url' cannot be set when transport is 'stdio'", name)
+		if upstream.URL != "" {
+			return fmt.Errorf("upstream '%s': 'url' cannot be set when transport is 'stdio'", name)
 		}
 	} else {
 		// For streamablehttp transport
-		if mcp.Cmd != "" {
-			return fmt.Errorf("mcp '%s': 'cmd' cannot be set when transport is '%s'", name, mcp.Transport)
+		if upstream.Cmd != "" {
+			return fmt.Errorf("upstream '%s': 'cmd' cannot be set when transport is '%s'", name, upstream.Transport)
 		}
-		if len(mcp.CmdArgs) > 0 {
-			return fmt.Errorf("mcp '%s': 'args' cannot be set when transport is '%s'", name, mcp.Transport)
+		if len(upstream.CmdArgs) > 0 {
+			return fmt.Errorf("upstream '%s': 'args' cannot be set when transport is '%s'", name, upstream.Transport)
 		}
-		if mcp.URL == "" {
-			return fmt.Errorf("mcp '%s': 'url' is required when transport is '%s'", name, mcp.Transport)
+		if upstream.URL == "" {
+			return fmt.Errorf("upstream '%s': 'url' is required when transport is '%s'", name, upstream.Transport)
 		}
 	}
 
 	// Validate Auth is only used with streamablehttp
-	if mcp.Auth != nil && mcp.Transport != "streamablehttp" {
-		return fmt.Errorf("mcp '%s': 'auth' is only allowed when transport is 'streamablehttp'", name)
+	if upstream.Auth != nil && upstream.Transport != "streamablehttp" {
+		return fmt.Errorf("upstream '%s': 'auth' is only allowed when transport is 'streamablehttp'", name)
 	}
 
 	return nil
 }
 
-func validateProxyConfig(name string, proxy *ProxyConfig, mcpConfigs map[string]MCPConfig) error {
-	// Check that exactly one of MCP or MCPs is set
-	mcpSet := proxy.MCP != ""
-	mcpsSet := len(proxy.MCPs) > 0
+func validateMCPConfig(name string, mcp *MCPConfig, upstreamConfigs map[string]UpstreamConfig) error {
+	// Check that exactly one of Upstream or Upstreams is set
+	upstreamSet := mcp.Upstream != ""
+	upstreamsSet := len(mcp.Upstreams) > 0
 
-	if !mcpSet && !mcpsSet {
-		return fmt.Errorf("proxy '%s': either 'mcp' or 'mcps' must be set", name)
+	if !upstreamSet && !upstreamsSet {
+		return fmt.Errorf("mcp '%s': either 'upstream' or 'upstreams' must be set", name)
 	}
-	if mcpSet && mcpsSet {
-		return fmt.Errorf("proxy '%s': cannot set both 'mcp' and 'mcps', only one is allowed", name)
+	if upstreamSet && upstreamsSet {
+		return fmt.Errorf("mcp '%s': cannot set both 'upstream' and 'upstreams', only one is allowed", name)
 	}
 
-	// Validate MCP reference
-	if mcpSet {
-		if _, exists := mcpConfigs[proxy.MCP]; !exists {
-			return fmt.Errorf("proxy '%s': mcp '%s' is not defined in the mcp section", name, proxy.MCP)
+	// Validate Upstream reference
+	if upstreamSet {
+		if _, exists := upstreamConfigs[mcp.Upstream]; !exists {
+			return fmt.Errorf("mcp '%s': upstream '%s' is not defined in the upstream section", name, mcp.Upstream)
 		}
 	}
 
-	// Validate MCPs references
-	if mcpsSet {
-		for _, multiMCP := range proxy.MCPs {
-			if _, exists := mcpConfigs[multiMCP.Name]; !exists {
-				return fmt.Errorf("proxy '%s': mcp '%s' (in mcps) is not defined in the mcp section", name, multiMCP.Name)
+	// Validate Upstreams references
+	if upstreamsSet {
+		for _, multiUpstream := range mcp.Upstreams {
+			if _, exists := upstreamConfigs[multiUpstream.Name]; !exists {
+				return fmt.Errorf("mcp '%s': upstream '%s' (in upstreams) is not defined in the upstream section", name, multiUpstream.Name)
 			}
 		}
 	}
@@ -281,15 +281,15 @@ func ReadConfig(path string) (*Config, error) {
 	if err := jsonParser.Decode(config); err != nil {
 		return nil, err
 	}
-	for name := range config.MCP {
-		mcp := config.MCP[name]
-		mcp.Name = name
-		config.MCP[name] = mcp
+	for name := range config.Upstream {
+		upstream := config.Upstream[name]
+		upstream.Name = name
+		config.Upstream[name] = upstream
 	}
-	for name := range config.Proxy {
-		proxy := config.Proxy[name]
-		proxy.Name = name
-		config.Proxy[name] = proxy
+	for name := range config.MCPs {
+		mcp := config.MCPs[name]
+		mcp.Name = name
+		config.MCPs[name] = mcp
 	}
 
 	// Validate the configuration

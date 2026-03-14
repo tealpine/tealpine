@@ -27,7 +27,7 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 	defer upstreamServer.Close()
 
 	// Create upstream client configuration
-	upstreamConfig := config.MCPConfig{
+	upstreamConfig := config.UpstreamConfig{
 		Name:      "calculator",
 		Transport: "streamablehttp",
 		URL:       upstreamServer.URL + "/mcp",
@@ -99,7 +99,7 @@ func TestProxyStreamableHttpTemperature(t *testing.T) {
 	defer upstreamServer.Close()
 
 	// Create upstream client configuration
-	upstreamConfig := config.MCPConfig{
+	upstreamConfig := config.UpstreamConfig{
 		Name:      "temperature",
 		Transport: "streamablehttp",
 		URL:       upstreamServer.URL + "/mcp",
@@ -184,7 +184,7 @@ func TestMultiProxy(t *testing.T) {
 	clients := make(map[string]*client.Client)
 
 	// Calculator client
-	calcConfig := config.MCPConfig{
+	calcConfig := config.UpstreamConfig{
 		Name:      "calculator",
 		Transport: "streamablehttp",
 		URL:       calcUpstreamServer.URL + "/mcp",
@@ -198,7 +198,7 @@ func TestMultiProxy(t *testing.T) {
 	defer calcClient.Close()
 
 	// Temperature client
-	tempConfig := config.MCPConfig{
+	tempConfig := config.UpstreamConfig{
 		Name:      "temperature",
 		Transport: "streamablehttp",
 		URL:       tempUpstreamServer.URL + "/mcp",
@@ -211,7 +211,7 @@ func TestMultiProxy(t *testing.T) {
 	defer tempClient.Close()
 
 	// Hello client (stdio)
-	helloConfig := config.MCPConfig{
+	helloConfig := config.UpstreamConfig{
 		Name:      "hello",
 		Transport: "stdio",
 		Cmd:       "go",
@@ -230,7 +230,7 @@ func TestMultiProxy(t *testing.T) {
 	defer helloClient.Close()
 
 	// 3. Create multi-proxy config
-	multiProxyConfig := []config.MultiMCPConfig{
+	multiProxyConfig := []config.MultiUpstreamConfig{
 		{Name: "calculator", Prefix: "calc"},
 		{Name: "temperature", Prefix: "temp"},
 		{Name: "hello", Prefix: "hello"},
@@ -313,7 +313,7 @@ func TestProxyFilteringMiddleware_ToolsList(t *testing.T) {
 	defer upstreamServer.Close()
 
 	// Create upstream client configuration
-	upstreamConfig := config.MCPConfig{
+	upstreamConfig := config.UpstreamConfig{
 		Name:      "calculator",
 		Transport: "streamablehttp",
 		URL:       upstreamServer.URL + "/mcp",
