@@ -93,16 +93,10 @@ func TestServer(t *testing.T) {
 				Path:      "calc",
 				Transport: "streamablehttp",
 				Upstream:  "calculator",
-				Auth: []config.AuthRule{
-					{
-						User:   "test-user",
-						Method: "tools/list",
-						Allow:  []string{"*"},
-					},
-					{
-						User:   "test-user",
-						Method: "tools/call",
-						Allow:  []string{"*"},
+				Auth: map[string][]config.AuthRule{
+					"power-users": {
+						{Method: "tools/list", Allow: []string{"*"}},
+						{Method: "tools/call", Allow: []string{"*"}},
 					},
 				},
 			},
@@ -111,16 +105,10 @@ func TestServer(t *testing.T) {
 				Path:      "temp",
 				Transport: "streamablehttp",
 				Upstream:  "temperature",
-				Auth: []config.AuthRule{
-					{
-						User:   "test-user",
-						Method: "tools/list",
-						Allow:  []string{"*"},
-					},
-					{
-						User:   "test-user",
-						Method: "tools/call",
-						Allow:  []string{"*"},
+				Auth: map[string][]config.AuthRule{
+					"power-users": {
+						{Method: "tools/list", Allow: []string{"*"}},
+						{Method: "tools/call", Allow: []string{"*"}},
 					},
 				},
 			},
@@ -129,16 +117,10 @@ func TestServer(t *testing.T) {
 				Path:      "hello",
 				Transport: "streamablehttp",
 				Upstream:  "hello",
-				Auth: []config.AuthRule{
-					{
-						Group:  "admins",
-						Method: "tools/list",
-						Allow:  []string{"*"},
-					},
-					{
-						Group:  "admins",
-						Method: "tools/call",
-						Allow:  []string{"*"},
+				Auth: map[string][]config.AuthRule{
+					"admins": {
+						{Method: "tools/list", Allow: []string{"*"}},
+						{Method: "tools/call", Allow: []string{"*"}},
 					},
 				},
 			},
@@ -151,38 +133,29 @@ func TestServer(t *testing.T) {
 					{Name: "temperature", Prefix: "temp"},
 					{Name: "hello", Prefix: "hello"},
 				},
-				Auth: []config.AuthRule{
-					{
-						Group:  "power-users",
-						Method: "tools/list",
-						Allow:  []string{"*"},
+				Auth: map[string][]config.AuthRule{
+					"power-users": {
+						{Method: "tools/list", Allow: []string{"*"}},
+						{Method: "tools/call", Allow: []string{"*"}},
 					},
-					{
-						Group:  "power-users",
-						Method: "tools/call",
-						Allow:  []string{"*"},
-					},
-					{
-						User:   "alice",
-						Method: "tools/list",
-						Allow:  []string{"*"},
-					},
-					{
-						User:   "alice",
-						Method: "tools/call",
-						Allow:  []string{"calc*", "temp_get_room_temperature"},
+					"alice-group": {
+						{Method: "tools/list", Allow: []string{"*"}},
+						{Method: "tools/call", Allow: []string{"calc*", "temp_get_room_temperature"}},
 					},
 				},
 			},
 		},
+		Groups: map[string][]string{
+			"admins":      {"test-user"},
+			"power-users": {"test-user"},
+			"alice-group": {"alice"},
+		},
 		Users: map[string]config.UserConfig{
 			"test-user": {
-				Token:  "test-user-token",
-				Groups: []string{"admins", "power-users"},
+				Token: "test-user-token",
 			},
 			"alice": {
-				Token:  "alice-token",
-				Groups: []string{},
+				Token: "alice-token",
 			},
 		},
 	}
@@ -601,19 +574,19 @@ func TestServerWithUpstreamServerRestart(t *testing.T) {
 				Path:      "calc",
 				Transport: "streamablehttp",
 				Upstream:  "calculator",
-				Auth: []config.AuthRule{
-					{
-						User:   "test-user",
-						Method: "tools/call",
-						Allow:  []string{"calculate"},
+				Auth: map[string][]config.AuthRule{
+					"users": {
+						{Method: "tools/call", Allow: []string{"calculate"}},
 					},
 				},
 			},
 		},
+		Groups: map[string][]string{
+			"users": {"test-user"},
+		},
 		Users: map[string]config.UserConfig{
 			"test-user": {
-				Token:  "test-user-token",
-				Groups: []string{},
+				Token: "test-user-token",
 			},
 		},
 	}

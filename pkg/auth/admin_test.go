@@ -9,31 +9,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"tealpine/pkg/auth"
-	"tealpine/pkg/config"
 )
 
 func TestAdminAuthorizer(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"admin-user": {
-			Token:  "admin-token",
-			Groups: []string{},
-		},
-		"group-user": {
-			Token:  "group-token",
-			Groups: []string{"admin-group"},
-		},
-		"regular-user": {
-			Token:  "regular-token",
-			Groups: []string{"users"},
-		},
+	groups := map[string][]string{
+		"admin-group": {"group-user"},
+		"users":       {"regular-user"},
 	}
 
-	adminUsers := []string{"admin-user"}
 	adminGroups := []string{"admin-group"}
 
-	authorizer := auth.NewAdminAuthorizer(users, adminUsers, adminGroups)
+	authorizer := auth.NewAdminAuthorizer(groups, adminGroups)
 
-	// Test handler that will be called if authorization succeeds
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("authorized"))
@@ -46,11 +33,6 @@ func TestAdminAuthorizer(t *testing.T) {
 		username       string
 		expectedStatus int
 	}{
-		{
-			name:           "admin user is authorized",
-			username:       "admin-user",
-			expectedStatus: http.StatusOK,
-		},
 		{
 			name:           "user in admin group is authorized",
 			username:       "group-user",

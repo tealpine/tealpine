@@ -19,12 +19,10 @@ func TestNewAuthenticator_NoUsers(t *testing.T) {
 func TestNewAuthenticator_WithUsers(t *testing.T) {
 	users := map[string]config.UserConfig{
 		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1", "gr2"},
+			Token: "alicetoken",
 		},
 		"bob": {
-			Token:  "bobtoken",
-			Groups: []string{"gr1", "gr3"},
+			Token: "bobtoken",
 		},
 	}
 
@@ -64,8 +62,7 @@ func TestAuthenticatorMiddleware_Disabled(t *testing.T) {
 func TestAuthenticatorMiddleware_MissingAuthHeader(t *testing.T) {
 	users := map[string]config.UserConfig{
 		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
+			Token: "alicetoken",
 		},
 	}
 
@@ -87,8 +84,7 @@ func TestAuthenticatorMiddleware_MissingAuthHeader(t *testing.T) {
 func TestAuthenticatorMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
 	users := map[string]config.UserConfig{
 		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
+			Token: "alicetoken",
 		},
 	}
 
@@ -111,8 +107,7 @@ func TestAuthenticatorMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
 func TestAuthenticatorMiddleware_InvalidToken(t *testing.T) {
 	users := map[string]config.UserConfig{
 		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
+			Token: "alicetoken",
 		},
 	}
 
@@ -135,8 +130,7 @@ func TestAuthenticatorMiddleware_InvalidToken(t *testing.T) {
 func TestAuthenticatorMiddleware_ValidToken(t *testing.T) {
 	users := map[string]config.UserConfig{
 		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
+			Token: "alicetoken",
 		},
 	}
 
@@ -165,12 +159,10 @@ func TestAuthenticatorMiddleware_ValidToken(t *testing.T) {
 func TestAuthenticatorMiddleware_MultipleUsers(t *testing.T) {
 	users := map[string]config.UserConfig{
 		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
+			Token: "alicetoken",
 		},
 		"bob": {
-			Token:  "bobtoken",
-			Groups: []string{"gr2"},
+			Token: "bobtoken",
 		},
 	}
 

@@ -1,8 +1,7 @@
 package auth
 
-// AuthRule represents an authorization rule for a user or group
+// AuthRule represents an authorization rule for a group
 type AuthRule struct {
-	User   string
 	Group  string
 	Method string
 	Allow  []string

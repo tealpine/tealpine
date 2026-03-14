@@ -9,14 +9,9 @@ import (
 func TestValidateUpstreamConfig_InvalidTransport(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "invalid",
-				URL:       "http://localhost:8080",
-			},
+			"test": {Name: "test", Transport: "invalid", URL: "http://localhost:8080"},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for invalid transport, got nil")
@@ -32,14 +27,9 @@ func TestValidateUpstreamConfig_InvalidTransport(t *testing.T) {
 func TestValidateUpstreamConfig_StdioMissingCmd(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "stdio",
-				// Cmd is missing
-			},
+			"test": {Name: "test", Transport: "stdio"},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for stdio without cmd, got nil")
@@ -52,15 +42,9 @@ func TestValidateUpstreamConfig_StdioMissingCmd(t *testing.T) {
 func TestValidateUpstreamConfig_StdioWithURL(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "stdio",
-				Cmd:       "go",
-				URL:       "http://localhost:8080",
-			},
+			"test": {Name: "test", Transport: "stdio", Cmd: "go", URL: "http://localhost:8080"},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for stdio with url, got nil")
@@ -73,21 +57,13 @@ func TestValidateUpstreamConfig_StdioWithURL(t *testing.T) {
 func TestValidateUpstreamConfig_StdioValid(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "stdio",
-				Cmd:       "go",
-				CmdArgs:   []string{"run", "main.go"},
-			},
+			"test": {Name: "test", Transport: "stdio", Cmd: "go", CmdArgs: []string{"run", "main.go"}},
 		},
+		Groups: map[string][]string{},
 		MCPs: map[string]MCPConfig{
-			"p1": {
-				Name:     "p1",
-				Upstream: "test",
-			},
+			"p1": {Name: "p1", Upstream: "test"},
 		},
 	}
-
 	err := config.Validate()
 	if err != nil {
 		t.Errorf("expected no error for valid stdio config, got: %v", err)
@@ -97,14 +73,9 @@ func TestValidateUpstreamConfig_StdioValid(t *testing.T) {
 func TestValidateUpstreamConfig_StreamableHTTPMissingURL(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "streamablehttp",
-				// URL is missing
-			},
+			"test": {Name: "test", Transport: "streamablehttp"},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for sse without url, got nil")
@@ -117,15 +88,9 @@ func TestValidateUpstreamConfig_StreamableHTTPMissingURL(t *testing.T) {
 func TestValidateUpstreamConfig_StreamableHTTPWithCmd(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
-				Cmd:       "go",
-			},
+			"test": {Name: "test", Transport: "streamablehttp", URL: "http://localhost:8080", Cmd: "go"},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for sse with cmd, got nil")
@@ -138,15 +103,9 @@ func TestValidateUpstreamConfig_StreamableHTTPWithCmd(t *testing.T) {
 func TestValidateUpstreamConfig_StreamableHTTPWithArgs(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
-				CmdArgs:   []string{"arg1"},
-			},
+			"test": {Name: "test", Transport: "streamablehttp", URL: "http://localhost:8080", CmdArgs: []string{"arg1"}},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for sse with args, got nil")
@@ -156,24 +115,16 @@ func TestValidateUpstreamConfig_StreamableHTTPWithArgs(t *testing.T) {
 	}
 }
 
-
 func TestValidateMCPConfig_BothUpstreamAndUpstreamsEmpty(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
-			},
+			"test": {Name: "test", Transport: "streamablehttp", URL: "http://localhost:8080"},
 		},
+		Groups: map[string][]string{},
 		MCPs: map[string]MCPConfig{
-			"p1": {
-				Name: "p1",
-				// Both Upstream and Upstreams are empty
-			},
+			"p1": {Name: "p1"},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for mcp without upstream or upstreams, got nil")
@@ -186,28 +137,18 @@ func TestValidateMCPConfig_BothUpstreamAndUpstreamsEmpty(t *testing.T) {
 func TestValidateMCPConfig_BothUpstreamAndUpstreamsSet(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test1": {
-				Name:      "test1",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
-			},
-			"test2": {
-				Name:      "test2",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8081",
-			},
+			"test1": {Name: "test1", Transport: "streamablehttp", URL: "http://localhost:8080"},
+			"test2": {Name: "test2", Transport: "streamablehttp", URL: "http://localhost:8081"},
 		},
+		Groups: map[string][]string{},
 		MCPs: map[string]MCPConfig{
 			"p1": {
-				Name:     "p1",
-				Upstream: "test1",
-				Upstreams: []MultiUpstreamConfig{
-					{Name: "test2", Prefix: "t2"},
-				},
+				Name:      "p1",
+				Upstream:  "test1",
+				Upstreams: []MultiUpstreamConfig{{Name: "test2", Prefix: "t2"}},
 			},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for mcp with both upstream and upstreams set, got nil")
@@ -220,20 +161,13 @@ func TestValidateMCPConfig_BothUpstreamAndUpstreamsSet(t *testing.T) {
 func TestValidateMCPConfig_UpstreamNotDefined(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
-			},
+			"test": {Name: "test", Transport: "streamablehttp", URL: "http://localhost:8080"},
 		},
+		Groups: map[string][]string{},
 		MCPs: map[string]MCPConfig{
-			"p1": {
-				Name:     "p1",
-				Upstream: "nonexistent",
-			},
+			"p1": {Name: "p1", Upstream: "nonexistent"},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for mcp referencing undefined upstream, got nil")
@@ -246,12 +180,9 @@ func TestValidateMCPConfig_UpstreamNotDefined(t *testing.T) {
 func TestValidateMCPConfig_UpstreamsNotDefined(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test1": {
-				Name:      "test1",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
-			},
+			"test1": {Name: "test1", Transport: "streamablehttp", URL: "http://localhost:8080"},
 		},
+		Groups: map[string][]string{},
 		MCPs: map[string]MCPConfig{
 			"p1": {
 				Name: "p1",
@@ -262,7 +193,6 @@ func TestValidateMCPConfig_UpstreamsNotDefined(t *testing.T) {
 			},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for mcp referencing undefined upstream in upstreams, got nil")
@@ -275,20 +205,13 @@ func TestValidateMCPConfig_UpstreamsNotDefined(t *testing.T) {
 func TestValidateMCPConfig_ValidSingleUpstream(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
-			},
+			"test": {Name: "test", Transport: "streamablehttp", URL: "http://localhost:8080"},
 		},
+		Groups: map[string][]string{},
 		MCPs: map[string]MCPConfig{
-			"p1": {
-				Name:     "p1",
-				Upstream: "test",
-			},
+			"p1": {Name: "p1", Upstream: "test"},
 		},
 	}
-
 	err := config.Validate()
 	if err != nil {
 		t.Errorf("expected no error for valid mcp with single upstream, got: %v", err)
@@ -298,17 +221,10 @@ func TestValidateMCPConfig_ValidSingleUpstream(t *testing.T) {
 func TestValidateMCPConfig_ValidMultipleUpstreams(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test1": {
-				Name:      "test1",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
-			},
-			"test2": {
-				Name:      "test2",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8081",
-			},
+			"test1": {Name: "test1", Transport: "streamablehttp", URL: "http://localhost:8080"},
+			"test2": {Name: "test2", Transport: "streamablehttp", URL: "http://localhost:8081"},
 		},
+		Groups: map[string][]string{},
 		MCPs: map[string]MCPConfig{
 			"p1": {
 				Name: "p1",
@@ -319,101 +235,159 @@ func TestValidateMCPConfig_ValidMultipleUpstreams(t *testing.T) {
 			},
 		},
 	}
-
 	err := config.Validate()
 	if err != nil {
 		t.Errorf("expected no error for valid mcp with multiple upstreams, got: %v", err)
 	}
 }
 
-func TestValidateUserConfig_DuplicateGroups(t *testing.T) {
+func TestValidateGroupsConfig_UserNotDefined(t *testing.T) {
 	config := &Config{
-		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
-			},
-		},
-		MCPs: map[string]MCPConfig{
-			"p1": {
-				Name:     "p1",
-				Upstream: "test",
-			},
+		Groups: map[string][]string{
+			"gr1": {"alice", "nonexistent-user"},
 		},
 		Users: map[string]UserConfig{
-			"alice": {
-				Token:  "token123",
-				Groups: []string{"group1", "group2", "group1"},
-			},
+			"alice": {Token: "alicetoken"},
 		},
 	}
-
 	err := config.Validate()
 	if err == nil {
-		t.Fatal("expected error for user with duplicate groups, got nil")
+		t.Fatal("expected error for group referencing undefined user, got nil")
 	}
-	if !strings.Contains(err.Error(), "duplicate group 'group1'") {
+	if !strings.Contains(err.Error(), "user 'nonexistent-user' is not defined in the users section") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
-func TestValidateUserConfig_UniqueGroups(t *testing.T) {
+func TestValidateGroupsConfig_AllUsersExist(t *testing.T) {
+	config := &Config{
+		Groups: map[string][]string{
+			"gr1": {"alice", "bob"},
+		},
+		Users: map[string]UserConfig{
+			"alice": {Token: "alicetoken"},
+			"bob":   {Token: "bobtoken"},
+		},
+	}
+	err := config.Validate()
+	if err != nil {
+		t.Errorf("expected no error when all group users exist, got: %v", err)
+	}
+}
+
+func TestValidateAdminGroups_GroupNotDefined(t *testing.T) {
+	config := &Config{
+		Server: ServerConfig{
+			Admin: []string{"gr-admins"},
+		},
+		Groups: map[string][]string{},
+	}
+	err := config.Validate()
+	if err == nil {
+		t.Fatal("expected error for admin referencing undefined group, got nil")
+	}
+	if !strings.Contains(err.Error(), "server.admin: group 'gr-admins' is not defined in the groups section") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestValidateAdminGroups_GroupDefined(t *testing.T) {
+	config := &Config{
+		Server: ServerConfig{
+			Host:  "localhost:8080",
+			Admin: []string{"gr-admins"},
+		},
+		Groups: map[string][]string{
+			"gr-admins": {"alice"},
+		},
+		Users: map[string]UserConfig{
+			"alice": {Token: "alicetoken"},
+		},
+	}
+	err := config.Validate()
+	if err != nil {
+		t.Errorf("expected no error when admin group is defined, got: %v", err)
+	}
+}
+
+func TestValidateMCPAuthGroups_GroupNotDefined(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
+			"test": {Name: "test", Transport: "streamablehttp", URL: "http://localhost:8080"},
+		},
+		Groups: map[string][]string{},
+		MCPs: map[string]MCPConfig{
+			"p1": {
+				Name:     "p1",
+				Upstream: "test",
+				Auth: map[string][]AuthRule{
+					"undefined-group": {{Method: "tools/list", Allow: []string{"*"}}},
+				},
 			},
+		},
+	}
+	err := config.Validate()
+	if err == nil {
+		t.Fatal("expected error for mcp auth referencing undefined group, got nil")
+	}
+	if !strings.Contains(err.Error(), "auth group 'undefined-group' is not defined in the groups section") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestValidateMCPAuthGroups_GroupDefined(t *testing.T) {
+	config := &Config{
+		Upstream: map[string]UpstreamConfig{
+			"test": {Name: "test", Transport: "streamablehttp", URL: "http://localhost:8080"},
+		},
+		Groups: map[string][]string{
+			"gr1": {"alice"},
+		},
+		Users: map[string]UserConfig{
+			"alice": {Token: "alicetoken"},
 		},
 		MCPs: map[string]MCPConfig{
 			"p1": {
 				Name:     "p1",
 				Upstream: "test",
-			},
-		},
-		Users: map[string]UserConfig{
-			"alice": {
-				Token:  "token123",
-				Groups: []string{"group1", "group2", "group3"},
+				Auth: map[string][]AuthRule{
+					"gr1": {{Method: "tools/list", Allow: []string{"*"}}},
+				},
 			},
 		},
 	}
-
 	err := config.Validate()
 	if err != nil {
-		t.Errorf("expected no error for user with unique groups, got: %v", err)
+		t.Errorf("expected no error when mcp auth group is defined, got: %v", err)
 	}
 }
 
 func TestValidateConfig_CompleteValid(t *testing.T) {
 	config := &Config{
 		Server: ServerConfig{
-			Host: "localhost:8080",
+			Host:  "localhost:8080",
+			Admin: []string{"admins"},
 		},
 		Upstream: map[string]UpstreamConfig{
-			"calculator": {
-				Name:      "calculator",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:7751/mcp",
-			},
-			"temperature": {
-				Name:      "temperature",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:7752/mcp",
-			},
-			"hello": {
-				Name:      "hello",
-				Transport: "stdio",
-				Cmd:       "go",
-				CmdArgs:   []string{"run", "main.go"},
-			},
+			"calculator":  {Name: "calculator", Transport: "streamablehttp", URL: "http://localhost:7751/mcp"},
+			"temperature": {Name: "temperature", Transport: "streamablehttp", URL: "http://localhost:7752/mcp"},
+			"hello":       {Name: "hello", Transport: "stdio", Cmd: "go", CmdArgs: []string{"run", "main.go"}},
+		},
+		Groups: map[string][]string{
+			"admins": {"alice"},
+			"users":  {"alice", "bob"},
+		},
+		Users: map[string]UserConfig{
+			"alice": {Token: "alicetoken"},
+			"bob":   {Token: "bobtoken"},
 		},
 		MCPs: map[string]MCPConfig{
 			"calc": {
 				Name:     "calc",
 				Upstream: "calculator",
+				Auth: map[string][]AuthRule{
+					"users": {{Method: "tools/call", Allow: []string{"*"}}},
+				},
 			},
 			"multi": {
 				Name: "multi",
@@ -424,107 +398,14 @@ func TestValidateConfig_CompleteValid(t *testing.T) {
 				},
 			},
 		},
-		Users: map[string]UserConfig{
-			"alice": {
-				Token:  "alicetoken",
-				Groups: []string{"gr1", "gr2"},
-			},
-			"bob": {
-				Token:  "bobtoken",
-				Groups: []string{"gr1", "gr3"},
-			},
-		},
 	}
-
 	err := config.Validate()
 	if err != nil {
 		t.Errorf("expected no error for valid complete config, got: %v", err)
 	}
 }
 
-func TestValidateConfig_MultipleErrors(t *testing.T) {
-	// Test that validation stops at first error
-	config := &Config{
-		Upstream: map[string]UpstreamConfig{
-			"invalid1": {
-				Name:      "invalid1",
-				Transport: "invalid",
-			},
-			"invalid2": {
-				Name:      "invalid2",
-				Transport: "stdio",
-				// Missing cmd
-			},
-		},
-	}
-
-	err := config.Validate()
-	if err == nil {
-		t.Fatal("expected error for invalid config, got nil")
-	}
-	// Should get at least one error
-}
-
-func TestValidateUpstreamConfig_AllTransportTypes(t *testing.T) {
-	tests := []struct {
-		name      string
-		transport string
-		url       string
-		cmd       string
-		args      []string
-		wantErr   bool
-	}{
-		{
-			name:      "valid stdio",
-			transport: "stdio",
-			cmd:       "node",
-			args:      []string{"server.js"},
-			wantErr:   false,
-		},
-		{
-			name:      "valid sse",
-			transport: "streamablehttp",
-			url:       "http://localhost:8080/mcp",
-			wantErr:   false,
-		},
-		{
-			name:      "valid streamablehttp",
-			transport: "streamablehttp",
-			url:       "http://localhost:8080/mcp",
-			wantErr:   false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := &Config{
-				Upstream: map[string]UpstreamConfig{
-					"test": {
-						Name:      "test",
-						Transport: tt.transport,
-						URL:       tt.url,
-						Cmd:       tt.cmd,
-						CmdArgs:   tt.args,
-					},
-				},
-				MCPs: map[string]MCPConfig{
-					"p1": {
-						Name:     "p1",
-						Upstream: "test",
-					},
-				},
-			}
-
-			err := config.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
 func TestReadConfig_WithValidation(t *testing.T) {
-	// Create a temporary config file with invalid content
 	tmpFile := t.TempDir() + "/invalid_config.json"
 	invalidConfig := `{
 		"server": {"host": "localhost:8080"},
@@ -534,6 +415,7 @@ func TestReadConfig_WithValidation(t *testing.T) {
 				"url": "http://localhost:8080"
 			}
 		},
+		"groups": {},
 		"mcps": {
 			"p1": {"upstream": "test"}
 		}
@@ -555,21 +437,13 @@ func TestReadConfig_WithValidation(t *testing.T) {
 func TestValidateUpstreamConfig_WithBearerToken(t *testing.T) {
 	config := &Config{
 		Upstream: map[string]UpstreamConfig{
-			"test": {
-				Name:      "test",
-				Transport: "streamablehttp",
-				URL:       "http://localhost:8080",
-				Bearer:    "my-secret-token",
-			},
+			"test": {Name: "test", Transport: "streamablehttp", URL: "http://localhost:8080", Bearer: "my-secret-token"},
 		},
+		Groups: map[string][]string{},
 		MCPs: map[string]MCPConfig{
-			"p1": {
-				Name:     "p1",
-				Upstream: "test",
-			},
+			"p1": {Name: "p1", Upstream: "test"},
 		},
 	}
-
 	err := config.Validate()
 	if err != nil {
 		t.Errorf("expected no error for valid config with bearer token, got: %v", err)

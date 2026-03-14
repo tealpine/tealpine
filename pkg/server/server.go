@@ -93,21 +93,22 @@ func (s *Server) Init(ctx context.Context) error {
 	// 2. Create and initialize all MCPs
 	for name, mcpConfig := range s.cfg.MCPs {
 		// Build auth rules for authorization
-		authRules := make([]auth.AuthRule, 0, len(mcpConfig.Auth))
-		for _, rule := range mcpConfig.Auth {
-			authRules = append(authRules, auth.AuthRule{
-				User:   rule.User,
-				Group:  rule.Group,
-				Method: rule.Method,
-				Allow:  rule.Allow,
-			})
+		authRules := make([]auth.AuthRule, 0)
+		for groupName, rules := range mcpConfig.Auth {
+			for _, rule := range rules {
+				authRules = append(authRules, auth.AuthRule{
+					Group:  groupName,
+					Method: rule.Method,
+					Allow:  rule.Allow,
+				})
+			}
 		}
 
 		// Create authenticator (HTTP middleware for token validation)
 		authenticator := auth.NewAuthenticator(s.cfg.Users, s.cfg.Server.Auth)
 
 		// Create authorizer (MCP middleware for Casbin enforcement)
-		authorizer, err := auth.NewAuthorizer(s.cfg.Users, authRules)
+		authorizer, err := auth.NewAuthorizer(s.cfg.Groups, authRules)
 		if err != nil {
 			return fmt.Errorf("failed to create authorizer for mcp %s: %w", name, err)
 		}
@@ -148,7 +149,7 @@ func (s *Server) Init(ctx context.Context) error {
 
 	// Create authenticator and admin authorizer for /tealpine endpoints
 	authenticator := auth.NewAuthenticator(s.cfg.Users, s.cfg.Server.Auth)
-	adminAuthorizer := auth.NewAdminAuthorizer(s.cfg.Users, s.cfg.Server.Admin.Users, s.cfg.Server.Admin.Groups)
+	adminAuthorizer := auth.NewAdminAuthorizer(s.cfg.Groups, s.cfg.Server.Admin)
 
 	// Register OAuth endpoints if OIDC is enabled
 	if s.cfg.Server.Auth != nil && s.cfg.Server.Auth.Type == "oidc" {

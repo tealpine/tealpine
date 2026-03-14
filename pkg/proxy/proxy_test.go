@@ -46,7 +46,7 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 
 	// Create authenticator and authorizer (no auth for test)
 	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil)
-	authorizer, err := auth.NewAuthorizer(make(map[string]config.UserConfig), []auth.AuthRule{})
+	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
 	require.NoError(t, err)
 
 	// Create proxy
@@ -118,7 +118,7 @@ func TestProxyStreamableHttpTemperature(t *testing.T) {
 
 	// Create authenticator and authorizer (no auth for test)
 	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil)
-	authorizer, err := auth.NewAuthorizer(make(map[string]config.UserConfig), []auth.AuthRule{})
+	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
 	require.NoError(t, err)
 
 	// Create proxy
@@ -238,7 +238,7 @@ func TestMultiProxy(t *testing.T) {
 
 	// 4. Create authenticator and authorizer (no auth for test)
 	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil)
-	authorizer, err := auth.NewAuthorizer(make(map[string]config.UserConfig), []auth.AuthRule{})
+	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
 	require.NoError(t, err)
 
 	// 5. Create MultiProxy
@@ -334,40 +334,43 @@ func TestProxyFilteringMiddleware_ToolsList(t *testing.T) {
 	// Bob has no permissions
 	users := map[string]config.UserConfig{
 		"alice": {
-			Token:  "alice-token",
-			Groups: []string{},
+			Token: "alice-token",
 		},
 		"bob": {
-			Token:  "bob-token",
-			Groups: []string{},
+			Token: "bob-token",
 		},
+	}
+
+	groups := map[string][]string{
+		"gr-alice": {"alice"},
+		"gr-bob":   {"bob"},
 	}
 
 	authRules := []auth.AuthRule{
 		{
-			User:   "alice",
+			Group:  "gr-alice",
 			Method: "tools/list",
 			Allow:  []string{"*"}, // Allow listing all tools
 		},
 		{
-			User:   "alice",
+			Group:  "gr-alice",
 			Method: "tools/call",
 			Allow:  []string{"calculate"}, // But only allow calling "calculate"
 		},
 		{
-			User:   "bob",
+			Group:  "gr-bob",
 			Method: "tools/list",
 			Allow:  []string{"*"}, // Allow listing
 		},
 		{
-			User:   "bob",
+			Group:  "gr-bob",
 			Method: "tools/call",
 			Allow:  []string{"nonexistent_*"}, // But no actual tools
 		},
 	}
 
 	authenticator := auth.NewAuthenticator(users, nil)
-	authorizer, err := auth.NewAuthorizer(users, authRules)
+	authorizer, err := auth.NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	// Create single proxy

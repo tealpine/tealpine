@@ -12,15 +12,16 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig               `json:"server"`
-	Upstream map[string]UpstreamConfig  `json:"upstream"`
-	MCPs     map[string]MCPConfig       `json:"mcps"`
-	Users    map[string]UserConfig      `json:"users"`
+	Server   ServerConfig              `json:"server"`
+	Upstream map[string]UpstreamConfig `json:"upstream"`
+	MCPs     map[string]MCPConfig      `json:"mcps"`
+	Groups   map[string][]string       `json:"groups"`
+	Users    map[string]UserConfig     `json:"users"`
 }
 
 type ServerConfig struct {
 	Host             string      `json:"host"`
-	Admin            Admin       `json:"admin"`
+	Admin            []string    `json:"admin,omitempty"`
 	Auth             *AuthConfig `json:"auth,omitempty"`
 	CORSAllowOrigin  string      `json:"cors_allow_origin,omitempty"`
 	AuthCookieSecure *bool       `json:"auth_cookie_secure,omitempty"`
@@ -32,11 +33,6 @@ func (s *ServerConfig) GetAuthCookieSecure() bool {
 		return true
 	}
 	return *s.AuthCookieSecure
-}
-
-type Admin struct {
-	Users  []string `json:"users"`
-	Groups []string `json:"groups"`
 }
 
 type AuthConfig struct {
@@ -69,11 +65,11 @@ type UpstreamConfig struct {
 
 type MCPConfig struct {
 	Name      string
-	Path      string               `json:"path"`
-	Transport string               `json:"transport"`
-	Upstream  string               `json:"upstream,omitempty"`
+	Path      string                `json:"path"`
+	Transport string                `json:"transport"`
+	Upstream  string                `json:"upstream,omitempty"`
 	Upstreams []MultiUpstreamConfig `json:"upstreams,omitempty"`
-	Auth      []AuthRule           `json:"auth,omitempty"`
+	Auth      map[string][]AuthRule `json:"auth,omitempty"`
 }
 
 type MultiUpstreamConfig struct {
@@ -81,42 +77,44 @@ type MultiUpstreamConfig struct {
 	Prefix string `json:"prefix"`
 }
 
+// AuthRule is a per-method allow rule. The group it applies to is the map key in MCPConfig.Auth.
 type AuthRule struct {
-	User   string   `json:"user,omitempty"`
-	Group  string   `json:"group,omitempty"`
 	Method string   `json:"method,omitempty"`
 	Allow  []string `json:"allow"`
 }
 
 type UserConfig struct {
-	Token  string   `json:"token"`
-	Groups []string `json:"groups"`
+	Token string `json:"token"`
 }
 
 // Validate checks the configuration for errors and returns meaningful error messages
 func (c *Config) Validate() error {
-	// Validate Server configuration
 	if err := validateServerConfig(&c.Server); err != nil {
 		return err
 	}
 
-	// Validate Upstream configurations
 	for name, upstream := range c.Upstream {
 		if err := validateUpstreamConfig(name, &upstream); err != nil {
 			return err
 		}
 	}
 
-	// Validate MCP configurations
 	for name, mcp := range c.MCPs {
 		if err := validateMCPConfig(name, &mcp, c.Upstream); err != nil {
 			return err
 		}
 	}
 
-	// Validate User configurations
-	for name, user := range c.Users {
-		if err := validateUserConfig(name, &user); err != nil {
+	if err := validateGroupsConfig(c.Groups, c.Users); err != nil {
+		return err
+	}
+
+	if err := validateAdminGroups(c.Server.Admin, c.Groups); err != nil {
+		return err
+	}
+
+	for name, mcp := range c.MCPs {
+		if err := validateMCPAuthGroups(name, mcp.Auth, c.Groups); err != nil {
 			return err
 		}
 	}
@@ -141,7 +139,6 @@ func validateServerConfig(server *ServerConfig) error {
 			return fmt.Errorf("server.auth: 'issuer_url' is required when type is 'oidc'")
 		}
 
-		// Validate issuer_url is a valid URL
 		if _, err := url.Parse(auth.IssuerURL); err != nil {
 			return fmt.Errorf("server.auth: 'issuer_url' is not a valid URL: %w", err)
 		}
@@ -158,7 +155,6 @@ func validateServerConfig(server *ServerConfig) error {
 			return fmt.Errorf("server.auth: 'redirect_url' is required when type is 'oidc'")
 		}
 
-		// Validate redirect_url is a valid URL
 		if _, err := url.Parse(auth.RedirectURL); err != nil {
 			return fmt.Errorf("server.auth: 'redirect_url' is not a valid URL: %w", err)
 		}
@@ -175,12 +171,11 @@ func expandEnvVars(s string) string {
 		if value := os.Getenv(varName); value != "" {
 			return value
 		}
-		return match // Return original if env var not found
+		return match
 	})
 }
 
 func validateUpstreamConfig(name string, upstream *UpstreamConfig) error {
-	// Validate transport field
 	validTransports := map[string]bool{
 		"stdio":          true,
 		"streamablehttp": true,
@@ -190,7 +185,6 @@ func validateUpstreamConfig(name string, upstream *UpstreamConfig) error {
 		return fmt.Errorf("upstream '%s': invalid transport '%s', must be one of: stdio, streamablehttp", name, upstream.Transport)
 	}
 
-	// Validate stdio transport requirements
 	if upstream.Transport == "stdio" {
 		if upstream.Cmd == "" {
 			return fmt.Errorf("upstream '%s': 'cmd' is required when transport is 'stdio'", name)
@@ -199,7 +193,6 @@ func validateUpstreamConfig(name string, upstream *UpstreamConfig) error {
 			return fmt.Errorf("upstream '%s': 'url' cannot be set when transport is 'stdio'", name)
 		}
 	} else {
-		// For streamablehttp transport
 		if upstream.Cmd != "" {
 			return fmt.Errorf("upstream '%s': 'cmd' cannot be set when transport is '%s'", name, upstream.Transport)
 		}
@@ -211,7 +204,6 @@ func validateUpstreamConfig(name string, upstream *UpstreamConfig) error {
 		}
 	}
 
-	// Validate Auth is only used with streamablehttp
 	if upstream.Auth != nil && upstream.Transport != "streamablehttp" {
 		return fmt.Errorf("upstream '%s': 'auth' is only allowed when transport is 'streamablehttp'", name)
 	}
@@ -220,7 +212,6 @@ func validateUpstreamConfig(name string, upstream *UpstreamConfig) error {
 }
 
 func validateMCPConfig(name string, mcp *MCPConfig, upstreamConfigs map[string]UpstreamConfig) error {
-	// Check that exactly one of Upstream or Upstreams is set
 	upstreamSet := mcp.Upstream != ""
 	upstreamsSet := len(mcp.Upstreams) > 0
 
@@ -231,14 +222,12 @@ func validateMCPConfig(name string, mcp *MCPConfig, upstreamConfigs map[string]U
 		return fmt.Errorf("mcp '%s': cannot set both 'upstream' and 'upstreams', only one is allowed", name)
 	}
 
-	// Validate Upstream reference
 	if upstreamSet {
 		if _, exists := upstreamConfigs[mcp.Upstream]; !exists {
 			return fmt.Errorf("mcp '%s': upstream '%s' is not defined in the upstream section", name, mcp.Upstream)
 		}
 	}
 
-	// Validate Upstreams references
 	if upstreamsSet {
 		for _, multiUpstream := range mcp.Upstreams {
 			if _, exists := upstreamConfigs[multiUpstream.Name]; !exists {
@@ -250,16 +239,35 @@ func validateMCPConfig(name string, mcp *MCPConfig, upstreamConfigs map[string]U
 	return nil
 }
 
-func validateUserConfig(name string, user *UserConfig) error {
-	// Check for duplicate group names within a user
-	groupSet := make(map[string]bool)
-	for _, group := range user.Groups {
-		if groupSet[group] {
-			return fmt.Errorf("user '%s': duplicate group '%s' found", name, group)
+// validateGroupsConfig validates that all users referenced in groups exist in the users section
+func validateGroupsConfig(groups map[string][]string, users map[string]UserConfig) error {
+	for groupName, members := range groups {
+		for _, username := range members {
+			if _, exists := users[username]; !exists {
+				return fmt.Errorf("group '%s': user '%s' is not defined in the users section", groupName, username)
+			}
 		}
-		groupSet[group] = true
 	}
+	return nil
+}
 
+// validateAdminGroups validates that all groups in server.admin are defined in the groups section
+func validateAdminGroups(adminGroups []string, groups map[string][]string) error {
+	for _, group := range adminGroups {
+		if _, exists := groups[group]; !exists {
+			return fmt.Errorf("server.admin: group '%s' is not defined in the groups section", group)
+		}
+	}
+	return nil
+}
+
+// validateMCPAuthGroups validates that all groups referenced in an MCP's auth are defined in the groups section
+func validateMCPAuthGroups(mcpName string, auth map[string][]AuthRule, groups map[string][]string) error {
+	for groupName := range auth {
+		if _, exists := groups[groupName]; !exists {
+			return fmt.Errorf("mcp '%s': auth group '%s' is not defined in the groups section", mcpName, groupName)
+		}
+	}
 	return nil
 }
 
@@ -292,7 +300,6 @@ func ReadConfig(path string) (*Config, error) {
 		config.MCPs[name] = mcp
 	}
 
-	// Validate the configuration
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

@@ -127,10 +127,8 @@ func TestStatusEndpoint(t *testing.T) {
 	// Create configuration with two upstream clients
 	cfg := &config.Config{
 		Server: config.ServerConfig{
-			Host: serverAddr,
-			Admin: config.Admin{
-				Users: []string{"admin"},
-			},
+			Host:  serverAddr,
+			Admin: []string{"admin-group"},
 		},
 		Upstream: map[string]config.UpstreamConfig{
 			"calculator1": {
@@ -160,10 +158,12 @@ func TestStatusEndpoint(t *testing.T) {
 				Upstream:  "calculator2",
 			},
 		},
+		Groups: map[string][]string{
+			"admin-group": {"admin"},
+		},
 		Users: map[string]config.UserConfig{
 			"admin": {
-				Token:  "admin-secret-token",
-				Groups: []string{},
+				Token: "admin-secret-token",
 			},
 		},
 	}

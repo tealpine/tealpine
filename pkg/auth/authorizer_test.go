@@ -6,106 +6,76 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
-
-	"tealpine/pkg/config"
 )
 
 func TestNewAuthorizer_NoRules(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1", "gr2"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
+		"gr2": {"alice"},
 	}
 
-	authorizer, err := NewAuthorizer(users, []AuthRule{})
+	authorizer, err := NewAuthorizer(groups, []AuthRule{})
 	require.NoError(t, err)
 	require.NotNil(t, authorizer)
 	require.False(t, authorizer.enabled, "Authorizer should be disabled when no rules provided")
 }
 
 func TestNewAuthorizer_WithRules(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1", "gr2"},
-		},
-		"bob": {
-			Token:  "bobtoken",
-			Groups: []string{"gr1", "gr3"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice", "bob"},
+		"gr2": {"alice"},
+		"gr3": {"bob"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/list",
-			Allow:  []string{"temp_*"},
-		},
-		{
-			Group:  "gr2",
-			Method: "tools/call",
-			Allow:  []string{"calc_calculate"},
-		},
+		{Group: "gr1", Method: "tools/list", Allow: []string{"temp_*"}},
+		{Group: "gr2", Method: "tools/call", Allow: []string{"calc_calculate"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 	require.NotNil(t, authorizer)
 	require.True(t, authorizer.enabled, "Authorizer should be enabled when rules provided")
 }
 
 func TestAuthorizerMiddleware_Disabled(t *testing.T) {
-	// Create authorizer with no rules (disabled)
-	authorizer, err := NewAuthorizer(make(map[string]config.UserConfig), []AuthRule{})
+	authorizer, err := NewAuthorizer(make(map[string][]string), []AuthRule{})
 	require.NoError(t, err)
 
-	// Create test handler
 	called := false
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		called = true
 		return nil, nil
 	}
 
-	// Create context without username (simulating missing authentication)
 	ctx := context.Background()
 
-	// Call middleware
 	middleware := authorizer.Middleware(handler)
 	req := &mcp.ServerRequest[*mcp.CallToolParams]{
 		Params: &mcp.CallToolParams{Name: "test"},
 	}
 	_, err = middleware(ctx, "tools/list", req)
 
-	// Should pass through without auth check
 	require.True(t, called, "Handler should be called")
 	require.NoError(t, err)
 }
 
 func TestAuthorizerMiddleware_MissingUsername(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/list",
-			Allow:  []string{"*"},
-		},
+		{Group: "gr1", Method: "tools/list", Allow: []string{"*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		return nil, nil
 	}
 
-	// Create context without username
 	ctx := context.Background()
 
 	middleware := authorizer.Middleware(handler)
@@ -119,22 +89,15 @@ func TestAuthorizerMiddleware_MissingUsername(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_InitializeMethod_Allowed(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/list",
-			Allow:  []string{"temp_*"},
-		},
+		{Group: "gr1", Method: "tools/list", Allow: []string{"temp_*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	called := false
@@ -156,22 +119,15 @@ func TestAuthorizerMiddleware_InitializeMethod_Allowed(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_NotificationsInitialized_Allowed(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/list",
-			Allow:  []string{"temp_*"},
-		},
+		{Group: "gr1", Method: "tools/list", Allow: []string{"temp_*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	called := false
@@ -193,35 +149,19 @@ func TestAuthorizerMiddleware_NotificationsInitialized_Allowed(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_PingMethod_Allowed(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
-		"bob": {
-			Token:  "bobtoken",
-			Groups: []string{"gr2"},
-		},
+	groups := map[string][]string{
+		"gr-alice": {"alice"},
+		"gr-bob":   {"bob"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/call",
-			Allow:  []string{"temp_*"},
-		},
+		{Group: "gr-alice", Method: "tools/call", Allow: []string{"temp_*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
-	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-		return nil, nil
-	}
-
-	middleware := authorizer.Middleware(handler)
-
-	// Both alice and bob should be allowed to call ping, even though bob has no rules
+	// Both alice and bob should be allowed to call ping
 	for _, username := range []string{"alice", "bob"} {
 		t.Run(username, func(t *testing.T) {
 			called := false
@@ -241,6 +181,9 @@ func TestAuthorizerMiddleware_PingMethod_Allowed(t *testing.T) {
 	}
 
 	// Verify it's not a blanket bypass — bob should still be denied tools/call
+	middleware := authorizer.Middleware(func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return nil, nil
+	})
 	ctx := context.WithValue(context.Background(), CtxUsernameKey, "bob")
 	req := &mcp.ServerRequest[*mcp.CallToolParams]{
 		Params: &mcp.CallToolParams{Name: "temp_get"},
@@ -249,103 +192,17 @@ func TestAuthorizerMiddleware_PingMethod_Allowed(t *testing.T) {
 	require.Error(t, err, "bob should still be denied tools/call")
 }
 
-func TestAuthorizerMiddleware_UserDirectPermission_Allowed(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1", "gr2"},
-		},
-	}
-
-	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/call",
-			Allow:  []string{"temp_*"},
-		},
-	}
-
-	authorizer, err := NewAuthorizer(users, authRules)
-	require.NoError(t, err)
-
-	called := false
-	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-		called = true
-		return nil, nil
-	}
-
-	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
-	req := &mcp.ServerRequest[*mcp.CallToolParams]{
-		Params: &mcp.CallToolParams{
-			Name: "temp_get_room_temperature",
-		},
-	}
-
-	middleware := authorizer.Middleware(handler)
-	_, err = middleware(ctx, "tools/call", req)
-
-	require.NoError(t, err)
-	require.True(t, called, "Handler should be called for allowed tool")
-}
-
-func TestAuthorizerMiddleware_UserDirectPermission_Denied(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1", "gr2"},
-		},
-	}
-
-	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/call",
-			Allow:  []string{"temp_*"},
-		},
-	}
-
-	authorizer, err := NewAuthorizer(users, authRules)
-	require.NoError(t, err)
-
-	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-		return nil, nil
-	}
-
-	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
-	req := &mcp.ServerRequest[*mcp.CallToolParams]{
-		Params: &mcp.CallToolParams{
-			Name: "calc_calculate",
-		},
-	}
-
-	middleware := authorizer.Middleware(handler)
-	_, err = middleware(ctx, "tools/call", req)
-
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "access denied")
-}
-
 func TestAuthorizerMiddleware_GroupPermission_Allowed(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1", "gr2"},
-		},
-		"bob": {
-			Token:  "bobtoken",
-			Groups: []string{"gr1", "gr3"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
+		"gr2": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			Group:  "gr2",
-			Method: "tools/call",
-			Allow:  []string{"calc_calculate"},
-		},
+		{Group: "gr2", Method: "tools/call", Allow: []string{"temp_*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	called := false
@@ -356,9 +213,7 @@ func TestAuthorizerMiddleware_GroupPermission_Allowed(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
 	req := &mcp.ServerRequest[*mcp.CallToolParams]{
-		Params: &mcp.CallToolParams{
-			Name: "calc_calculate",
-		},
+		Params: &mcp.CallToolParams{Name: "temp_get_room_temperature"},
 	}
 
 	middleware := authorizer.Middleware(handler)
@@ -369,26 +224,16 @@ func TestAuthorizerMiddleware_GroupPermission_Allowed(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_GroupPermission_Denied(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1", "gr2"},
-		},
-		"bob": {
-			Token:  "bobtoken",
-			Groups: []string{"gr1", "gr3"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice", "bob"},
+		"gr2": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			Group:  "gr2",
-			Method: "tools/call",
-			Allow:  []string{"calc_calculate"},
-		},
+		{Group: "gr2", Method: "tools/call", Allow: []string{"calc_calculate"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -397,9 +242,7 @@ func TestAuthorizerMiddleware_GroupPermission_Denied(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), CtxUsernameKey, "bob")
 	req := &mcp.ServerRequest[*mcp.CallToolParams]{
-		Params: &mcp.CallToolParams{
-			Name: "calc_calculate",
-		},
+		Params: &mcp.CallToolParams{Name: "calc_calculate"},
 	}
 
 	middleware := authorizer.Middleware(handler)
@@ -410,22 +253,15 @@ func TestAuthorizerMiddleware_GroupPermission_Denied(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_WildcardPattern(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/call",
-			Allow:  []string{"temp_*"},
-		},
+		{Group: "gr1", Method: "tools/call", Allow: []string{"temp_*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -448,9 +284,7 @@ func TestAuthorizerMiddleware_WildcardPattern(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
 			req := &mcp.ServerRequest[*mcp.CallToolParams]{
-				Params: &mcp.CallToolParams{
-					Name: tc.toolName,
-				},
+				Params: &mcp.CallToolParams{Name: tc.toolName},
 			}
 
 			middleware := authorizer.Middleware(handler)
@@ -467,22 +301,15 @@ func TestAuthorizerMiddleware_WildcardPattern(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_MethodSpecific(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/list",
-			Allow:  []string{"calculate"},
-		},
+		{Group: "gr1", Method: "tools/list", Allow: []string{"calculate"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -491,40 +318,29 @@ func TestAuthorizerMiddleware_MethodSpecific(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
 	req := &mcp.ServerRequest[*mcp.CallToolParams]{
-		Params: &mcp.CallToolParams{
-			Name: "calculate",
-		},
+		Params: &mcp.CallToolParams{Name: "calculate"},
 	}
 
 	middleware := authorizer.Middleware(handler)
 
-	// Test with allowed method
 	_, err = middleware(ctx, "tools/list", req)
 	require.NoError(t, err, "Should allow tools/list")
 
-	// Test with different method (same tool)
 	_, err = middleware(ctx, "tools/call", req)
 	require.Error(t, err, "Should deny tools/call")
 	require.Contains(t, err.Error(), "access denied")
 }
 
 func TestAuthorizerMiddleware_NoResourceName(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "some/method",
-			Allow:  []string{"*"},
-		},
+		{Group: "gr1", Method: "some/method", Allow: []string{"*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -532,12 +348,8 @@ func TestAuthorizerMiddleware_NoResourceName(t *testing.T) {
 	}
 
 	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
-	// Use a params type that has no name field - just use an empty CallToolParams
-	// which will have an empty Name that matches the wildcard "*"
 	req := &mcp.ServerRequest[*mcp.CallToolParams]{
-		Params: &mcp.CallToolParams{
-			Name: "",
-		},
+		Params: &mcp.CallToolParams{Name: ""},
 	}
 
 	middleware := authorizer.Middleware(handler)
@@ -547,22 +359,15 @@ func TestAuthorizerMiddleware_NoResourceName(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_WildcardMethod(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "*",
-			Allow:  []string{"*"},
-		},
+		{Group: "gr1", Method: "*", Allow: []string{"*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	called := false
@@ -599,22 +404,15 @@ func TestAuthorizerMiddleware_WildcardMethod(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_PrefixMethod(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/*",
-			Allow:  []string{"*"},
-		},
+		{Group: "gr1", Method: "tools/*", Allow: []string{"*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -652,26 +450,16 @@ func TestAuthorizerMiddleware_PrefixMethod(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_WildcardMethod_DeniedForOtherUser(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
-		"bob": {
-			Token:  "bobtoken",
-			Groups: []string{"gr2"},
-		},
+	groups := map[string][]string{
+		"gr-alice": {"alice"},
+		"gr-bob":   {"bob"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "*",
-			Allow:  []string{"*"},
-		},
+		{Group: "gr-alice", Method: "*", Allow: []string{"*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -685,27 +473,20 @@ func TestAuthorizerMiddleware_WildcardMethod_DeniedForOtherUser(t *testing.T) {
 
 	middleware := authorizer.Middleware(handler)
 	_, err = middleware(ctx, "logging/setLevel", req)
-	require.Error(t, err, "Bob should be denied with wildcard method rule for alice only")
+	require.Error(t, err, "Bob should be denied with wildcard method rule for alice's group only")
 	require.Contains(t, err.Error(), "access denied")
 }
 
 func TestAuthorizerMiddleware_WildcardObj(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/call",
-			Allow:  []string{"*"},
-		},
+		{Group: "gr1", Method: "tools/call", Allow: []string{"*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -715,7 +496,6 @@ func TestAuthorizerMiddleware_WildcardObj(t *testing.T) {
 	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
 	middleware := authorizer.Middleware(handler)
 
-	// obj values without slash — globMatch("mytool", "*") should work
 	tests := []struct {
 		name string
 		obj  string
@@ -740,22 +520,15 @@ func TestAuthorizerMiddleware_WildcardObj(t *testing.T) {
 }
 
 func TestAuthorizerMiddleware_GlobPatternObj(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "resources/read",
-			Allow:  []string{"file://*"},
-		},
+		{Group: "gr1", Method: "resources/read", Allow: []string{"file://*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -792,25 +565,17 @@ func TestAuthorizerMiddleware_GlobPatternObj(t *testing.T) {
 }
 
 func TestFilteringMiddleware_ToolsList_FilterByPermission(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/call",
-			Allow:  []string{"temp_*"},
-		},
+		{Group: "gr1", Method: "tools/call", Allow: []string{"temp_*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
-	// Create handler that returns a list of tools
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		return &mcp.ListToolsResult{
 			Tools: []*mcp.Tool{
@@ -839,27 +604,17 @@ func TestFilteringMiddleware_ToolsList_FilterByPermission(t *testing.T) {
 }
 
 func TestFilteringMiddleware_ToolsList_MultiplePermissions(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1", "gr2"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
+		"gr2": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/call",
-			Allow:  []string{"temp_*"},
-		},
-		{
-			Group:  "gr2",
-			Method: "tools/call",
-			Allow:  []string{"calc_*"},
-		},
+		{Group: "gr1", Method: "tools/call", Allow: []string{"temp_*"}},
+		{Group: "gr2", Method: "tools/call", Allow: []string{"calc_*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -887,22 +642,15 @@ func TestFilteringMiddleware_ToolsList_MultiplePermissions(t *testing.T) {
 }
 
 func TestFilteringMiddleware_ToolsList_NoPermissions(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/call",
-			Allow:  []string{"nonexistent_*"},
-		},
+		{Group: "gr1", Method: "tools/call", Allow: []string{"nonexistent_*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -929,8 +677,7 @@ func TestFilteringMiddleware_ToolsList_NoPermissions(t *testing.T) {
 }
 
 func TestFilteringMiddleware_ToolsList_Disabled(t *testing.T) {
-	// Create authorizer with no rules (disabled)
-	authorizer, err := NewAuthorizer(make(map[string]config.UserConfig), []AuthRule{})
+	authorizer, err := NewAuthorizer(make(map[string][]string), []AuthRule{})
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -957,22 +704,15 @@ func TestFilteringMiddleware_ToolsList_Disabled(t *testing.T) {
 }
 
 func TestFilteringMiddleware_ResourcesList(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "resources/read",
-			Allow:  []string{"file://docs/*"},
-		},
+		{Group: "gr1", Method: "resources/read", Allow: []string{"file://docs/*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -1000,22 +740,15 @@ func TestFilteringMiddleware_ResourcesList(t *testing.T) {
 }
 
 func TestFilteringMiddleware_PromptsList(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "prompts/get",
-			Allow:  []string{"code_*"},
-		},
+		{Group: "gr1", Method: "prompts/get", Allow: []string{"code_*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
 	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -1045,25 +778,17 @@ func TestFilteringMiddleware_PromptsList(t *testing.T) {
 }
 
 func TestFilteringMiddleware_NonListMethod_PassThrough(t *testing.T) {
-	users := map[string]config.UserConfig{
-		"alice": {
-			Token:  "alicetoken",
-			Groups: []string{"gr1"},
-		},
+	groups := map[string][]string{
+		"gr1": {"alice"},
 	}
 
 	authRules := []AuthRule{
-		{
-			User:   "alice",
-			Method: "tools/call",
-			Allow:  []string{"temp_*"},
-		},
+		{Group: "gr1", Method: "tools/call", Allow: []string{"temp_*"}},
 	}
 
-	authorizer, err := NewAuthorizer(users, authRules)
+	authorizer, err := NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 
-	// Return a CallToolResult (not a list result)
 	expectedResult := &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: "test result"},

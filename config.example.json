@@ -1,0 +1,81 @@
+{
+  "server": {
+    "host": "localhost:8088",
+    "admin": ["admins"]
+  },
+  "upstream": {
+    "calculator": {
+      "transport": "streamablehttp",
+      "url": "http://localhost:7751/mcp",
+      "bearer": "some_random_token1"
+    },
+    "temperature": {
+      "transport": "streamablehttp",
+      "url": "http://localhost:7752/mcp",
+      "bearer": "some_random_token2"
+    },
+    "hello": {
+      "transport": "stdio",
+      "cmd": "go",
+      "args": [
+        "run",
+        "test/mcp_servers/main.go",
+        "server",
+        "hello"
+      ]
+    }
+  },
+  "mcps": {
+    "calc": {
+      "path": "calc",
+      "transport": "streamablehttp",
+      "upstream": "calculator"
+    },
+    "temp": {
+      "path": "temp",
+      "transport": "streamablehttp",
+      "upstream": "temperature"
+    },
+    "hello": {
+      "path": "hello",
+      "transport": "streamablehttp",
+      "upstream": "hello"
+    },
+    "multi": {
+      "path": "multi",
+      "transport": "streamablehttp",
+      "upstreams": [
+        {
+          "name": "calculator",
+          "prefix": "calc"
+        },
+        {
+          "name": "temperature",
+          "prefix": "temp"
+        },
+        {
+          "name": "hello",
+          "prefix": "hello"
+        }
+      ],
+      "auth": {
+        "gr2": [
+          {"method": "tools/list", "allow": ["calc_calculate", "temp_*"]}
+        ]
+      }
+    }
+  },
+  "groups": {
+    "admins": ["alice"],
+    "gr1": ["alice", "bob"],
+    "gr2": ["alice"]
+  },
+  "users": {
+    "alice": {
+      "token": "alicetoken"
+    },
+    "bob": {
+      "token": "bobtoken"
+    }
+  }
+}
