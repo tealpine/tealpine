@@ -777,6 +777,161 @@ func TestFilteringMiddleware_PromptsList(t *testing.T) {
 	require.Equal(t, "code_generate", listResult.Prompts[1].Name)
 }
 
+func TestAuthorizerMiddleware_ResourcesSubscribe(t *testing.T) {
+	groups := map[string][]string{
+		"gr1": {"alice"},
+	}
+
+	authRules := []AuthRule{
+		{Group: "gr1", Method: "resources/subscribe", Allow: []string{"file:///docs/*"}},
+	}
+
+	authorizer, err := NewAuthorizer(groups, authRules)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return nil, nil
+	}
+
+	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
+	middleware := authorizer.Middleware(handler)
+
+	tests := []struct {
+		uri     string
+		allowed bool
+	}{
+		{"file:///docs/readme.md", true},
+		{"file:///docs/nested/file.txt", true},
+		{"file:///other/file.txt", false},
+		{"https://example.com/doc", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.uri, func(t *testing.T) {
+			req := &mcp.SubscribeRequest{
+				Params: &mcp.SubscribeParams{URI: tt.uri},
+			}
+			_, err := middleware(ctx, "resources/subscribe", req)
+			if tt.allowed {
+				require.NoError(t, err, "subscribe to %q should be allowed", tt.uri)
+			} else {
+				require.Error(t, err, "subscribe to %q should be denied", tt.uri)
+				require.Contains(t, err.Error(), "access denied")
+			}
+		})
+	}
+}
+
+func TestAuthorizerMiddleware_ResourcesUnsubscribe(t *testing.T) {
+	groups := map[string][]string{
+		"gr1": {"alice"},
+	}
+
+	authRules := []AuthRule{
+		{Group: "gr1", Method: "resources/unsubscribe", Allow: []string{"file:///docs/*"}},
+	}
+
+	authorizer, err := NewAuthorizer(groups, authRules)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return nil, nil
+	}
+
+	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
+	middleware := authorizer.Middleware(handler)
+
+	tests := []struct {
+		uri     string
+		allowed bool
+	}{
+		{"file:///docs/readme.md", true},
+		{"file:///docs/nested/file.txt", true},
+		{"file:///other/file.txt", false},
+		{"https://example.com/doc", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.uri, func(t *testing.T) {
+			req := &mcp.UnsubscribeRequest{
+				Params: &mcp.UnsubscribeParams{URI: tt.uri},
+			}
+			_, err := middleware(ctx, "resources/unsubscribe", req)
+			if tt.allowed {
+				require.NoError(t, err, "unsubscribe from %q should be allowed", tt.uri)
+			} else {
+				require.Error(t, err, "unsubscribe from %q should be denied", tt.uri)
+				require.Contains(t, err.Error(), "access denied")
+			}
+		})
+	}
+}
+
+func TestAuthorizerMiddleware_CompletionComplete(t *testing.T) {
+	groups := map[string][]string{
+		"gr1": {"alice"},
+	}
+
+	authRules := []AuthRule{
+		{Group: "gr1", Method: "completion/complete", Allow: []string{"file:///docs/*", "summarize_*"}},
+	}
+
+	authorizer, err := NewAuthorizer(groups, authRules)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return nil, nil
+	}
+
+	ctx := context.WithValue(context.Background(), CtxUsernameKey, "alice")
+	middleware := authorizer.Middleware(handler)
+
+	tests := []struct {
+		name    string
+		ref     *mcp.CompleteReference
+		allowed bool
+	}{
+		{
+			name:    "resource_allowed",
+			ref:     &mcp.CompleteReference{Type: "ref/resource", URI: "file:///docs/readme.md"},
+			allowed: true,
+		},
+		{
+			name:    "resource_denied",
+			ref:     &mcp.CompleteReference{Type: "ref/resource", URI: "file:///private/secret.txt"},
+			allowed: false,
+		},
+		{
+			name:    "prompt_allowed",
+			ref:     &mcp.CompleteReference{Type: "ref/prompt", Name: "summarize_document"},
+			allowed: true,
+		},
+		{
+			name:    "prompt_denied",
+			ref:     &mcp.CompleteReference{Type: "ref/prompt", Name: "admin_tool"},
+			allowed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &mcp.CompleteRequest{
+				Params: &mcp.CompleteParams{
+					Ref:      tt.ref,
+					Argument: mcp.CompleteParamsArgument{Name: "path", Value: "doc"},
+				},
+			}
+			_, err := middleware(ctx, "completion/complete", req)
+			if tt.allowed {
+				require.NoError(t, err, "completion/complete for %+v should be allowed", tt.ref)
+			} else {
+				require.Error(t, err, "completion/complete for %+v should be denied", tt.ref)
+				require.Contains(t, err.Error(), "access denied")
+			}
+		})
+	}
+}
+
 func TestFilteringMiddleware_NonListMethod_PassThrough(t *testing.T) {
 	groups := map[string][]string{
 		"gr1": {"alice"},

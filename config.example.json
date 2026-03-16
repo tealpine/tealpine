@@ -60,7 +60,13 @@
       ],
       "auth": {
         "gr2": [
-          {"method": "tools/list", "allow": ["calc_calculate", "temp_*"]}
+          {"method": "tools/list",             "allow": ["calc_calculate", "temp_*"]},
+          {"method": "prompts/get",             "allow": ["summarize_*"]},
+          {"method": "resources/read",          "allow": ["file:///docs/*"]},
+          {"method": "tools/call",              "allow": ["calc_calculate", "temp_*"]},
+          {"method": "resources/subscribe",     "allow": ["file:///docs/*"]},
+          {"method": "resources/unsubscribe",   "allow": ["file:///docs/*"]},
+          {"method": "completion/complete",     "allow": ["file:///docs/*", "summarize_*"]}
         ]
       }
     }

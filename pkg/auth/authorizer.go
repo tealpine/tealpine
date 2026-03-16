@@ -254,6 +254,18 @@ func (a *Authorizer) extractResourceName(req mcp.Request) string {
 		return p.Name
 	case *mcp.ReadResourceParams:
 		return p.URI
+	case *mcp.SubscribeParams:
+		return p.URI
+	case *mcp.UnsubscribeParams:
+		return p.URI
+	case *mcp.CompleteParams:
+		if p.Ref != nil {
+			if p.Ref.URI != "" {
+				return p.Ref.URI
+			}
+			return p.Ref.Name
+		}
+		return ""
 	case interface{ GetName() string }:
 		return p.GetName()
 	case interface{ GetURI() string }:
