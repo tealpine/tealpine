@@ -23,7 +23,7 @@ type Authenticator struct {
 
 // NewAuthenticator creates a new authenticator with the given users and auth config
 // If no users are provided and no OIDC config, authentication is disabled
-func NewAuthenticator(users map[string]config.UserConfig, authConfig *config.AuthConfig) *Authenticator {
+func NewAuthenticator(users map[string]config.UserConfig, authConfig *config.AuthConfig, redirectURL string) *Authenticator {
 	// Check if authentication is disabled
 	if len(users) == 0 && (authConfig == nil || authConfig.Type == "") {
 		return &Authenticator{
@@ -48,7 +48,7 @@ func NewAuthenticator(users map[string]config.UserConfig, authConfig *config.Aut
 
 	// Initialize OIDC if configured
 	if authConfig != nil && authConfig.Type == "oidc" {
-		provider, err := NewOIDCProvider(authConfig)
+		provider, err := NewOIDCProvider(authConfig, redirectURL)
 		if err != nil {
 			log.Printf("Failed to initialize OIDC provider: %v. Falling back to static tokens.", err)
 		} else {

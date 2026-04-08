@@ -45,7 +45,7 @@ func TestProxyStreamableHttpCalculator(t *testing.T) {
 	defer upstreamClient.Close()
 
 	// Create authenticator and authorizer (no auth for test)
-	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil)
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil, "")
 	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
 	require.NoError(t, err)
 
@@ -117,7 +117,7 @@ func TestProxyStreamableHttpTemperature(t *testing.T) {
 	defer upstreamClient.Close()
 
 	// Create authenticator and authorizer (no auth for test)
-	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil)
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil, "")
 	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
 	require.NoError(t, err)
 
@@ -237,7 +237,7 @@ func TestMultiProxy(t *testing.T) {
 	}
 
 	// 4. Create authenticator and authorizer (no auth for test)
-	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil)
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil, "")
 	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
 	require.NoError(t, err)
 
@@ -369,7 +369,7 @@ func TestProxyFilteringMiddleware_ToolsList(t *testing.T) {
 		},
 	}
 
-	authenticator := auth.NewAuthenticator(users, nil)
+	authenticator := auth.NewAuthenticator(users, nil, "")
 	authorizer, err := auth.NewAuthorizer(groups, authRules)
 	require.NoError(t, err)
 

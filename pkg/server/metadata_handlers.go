@@ -13,20 +13,22 @@ import (
 type MetadataHandlers struct {
 	authConfig *config.AuthConfig
 	serverHost string
+	useHTTPS   bool
 }
 
 // NewMetadataHandlers creates a new MetadataHandlers instance
-func NewMetadataHandlers(authConfig *config.AuthConfig, serverHost string) *MetadataHandlers {
+func NewMetadataHandlers(authConfig *config.AuthConfig, serverHost string, useHTTPS bool) *MetadataHandlers {
 	return &MetadataHandlers{
 		authConfig: authConfig,
 		serverHost: serverHost,
+		useHTTPS:   useHTTPS,
 	}
 }
 
 // resourceServerURL returns the full resource server URL with the appropriate scheme
 func (h *MetadataHandlers) resourceServerURL() string {
 	scheme := "http"
-	if strings.HasPrefix(h.authConfig.RedirectURL, "https://") {
+	if h.useHTTPS {
 		scheme = "https"
 	}
 	return scheme + "://" + h.serverHost

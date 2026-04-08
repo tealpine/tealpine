@@ -105,7 +105,7 @@ func (s *Server) Init(ctx context.Context) error {
 		}
 
 		// Create authenticator (HTTP middleware for token validation)
-		authenticator := auth.NewAuthenticator(s.cfg.Users, s.cfg.Server.Auth)
+		authenticator := auth.NewAuthenticator(s.cfg.Users, s.cfg.Server.Auth, s.cfg.Server.GetRedirectURL())
 
 		// Create authorizer (MCP middleware for Casbin enforcement)
 		authorizer, err := auth.NewAuthorizer(s.cfg.Groups, authRules)
@@ -148,7 +148,7 @@ func (s *Server) Init(ctx context.Context) error {
 	s.ginEngine.Use(CORSMiddleware(s.cfg.Server.CORSAllowOrigin))
 
 	// Create authenticator and admin authorizer for /tealpine endpoints
-	authenticator := auth.NewAuthenticator(s.cfg.Users, s.cfg.Server.Auth)
+	authenticator := auth.NewAuthenticator(s.cfg.Users, s.cfg.Server.Auth, s.cfg.Server.GetRedirectURL())
 	adminAuthorizer := auth.NewAdminAuthorizer(s.cfg.Groups, s.cfg.Server.Admin)
 
 	// Register OAuth endpoints if OIDC is enabled
@@ -162,7 +162,7 @@ func (s *Server) Init(ctx context.Context) error {
 		// Register OAuth 2.0 Protected Resource Metadata endpoints (RFC 9728)
 		// Required by MCP specification for client discovery
 		// Use Any() to handle all HTTP methods including OPTIONS for CORS preflight
-		metadataHandlers := NewMetadataHandlers(s.cfg.Server.Auth, s.cfg.Server.Host)
+		metadataHandlers := NewMetadataHandlers(s.cfg.Server.Auth, s.cfg.Server.Host, s.cfg.Server.GetAuthCookieSecure())
 		s.ginEngine.Any("/.well-known/oauth-protected-resource", metadataHandlers.HandleProtectedResourceMetadata)
 		s.ginEngine.Any("/.well-known/oauth-protected-resource/*path", metadataHandlers.HandlePathSpecificMetadata)
 		s.ginEngine.Any("/.well-known/openid-configuration", metadataHandlers.HandleOpenIDConfiguration)

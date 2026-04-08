@@ -21,7 +21,7 @@ type OIDCProvider struct {
 }
 
 // NewOIDCProvider creates a new OIDC provider from configuration
-func NewOIDCProvider(cfg *config.AuthConfig) (*OIDCProvider, error) {
+func NewOIDCProvider(cfg *config.AuthConfig, redirectURL string) (*OIDCProvider, error) {
 	// Use timeout context for provider initialization
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -44,7 +44,7 @@ func NewOIDCProvider(cfg *config.AuthConfig) (*OIDCProvider, error) {
 	oauth2Config := oauth2.Config{
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
-		RedirectURL:  cfg.RedirectURL,
+		RedirectURL:  redirectURL,
 		Endpoint:     provider.Endpoint(),
 		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 	}

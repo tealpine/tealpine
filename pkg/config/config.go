@@ -35,12 +35,20 @@ func (s *ServerConfig) GetAuthCookieSecure() bool {
 	return *s.AuthCookieSecure
 }
 
+// GetRedirectURL derives the OIDC callback URL from the server host and https setting.
+func (s *ServerConfig) GetRedirectURL() string {
+	scheme := "http"
+	if s.GetAuthCookieSecure() {
+		scheme = "https"
+	}
+	return scheme + "://" + s.Host + "/auth/callback"
+}
+
 type AuthConfig struct {
 	Type                string `json:"type"`                 // "oidc" or "token"
 	IssuerURL           string `json:"issuer_url,omitempty"` // OIDC provider URL
 	ClientID            string `json:"client_id,omitempty"`  // OAuth client ID
 	ClientSecret        string `json:"client_secret,omitempty"`
-	RedirectURL         string `json:"redirect_url,omitempty"` // Callback URL
 	UserClaimField      string `json:"user_claim_field,omitempty"`
 	GroupClaimField     string `json:"group_claim_field,omitempty"`
 	RequireUserInConfig bool   `json:"require_user_in_config,omitempty"`
@@ -149,14 +157,6 @@ func validateServerConfig(server *ServerConfig) error {
 
 		if auth.ClientSecret == "" {
 			return fmt.Errorf("server.auth: 'client_secret' is required when type is 'oidc'")
-		}
-
-		if auth.RedirectURL == "" {
-			return fmt.Errorf("server.auth: 'redirect_url' is required when type is 'oidc'")
-		}
-
-		if _, err := url.Parse(auth.RedirectURL); err != nil {
-			return fmt.Errorf("server.auth: 'redirect_url' is not a valid URL: %w", err)
 		}
 	}
 

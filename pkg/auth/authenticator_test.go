@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewAuthenticator_NoUsers(t *testing.T) {
-	auth := NewAuthenticator(nil, nil)
+	auth := NewAuthenticator(nil, nil, "")
 	require.NotNil(t, auth)
 	require.False(t, auth.enabled, "Authenticator should be disabled when no users provided")
 }
@@ -26,7 +26,7 @@ func TestNewAuthenticator_WithUsers(t *testing.T) {
 		},
 	}
 
-	auth := NewAuthenticator(users, nil)
+	auth := NewAuthenticator(users, nil, "")
 	require.NotNil(t, auth)
 	require.True(t, auth.enabled, "Authenticator should be enabled when users provided")
 	require.Equal(t, 2, len(auth.userTokens))
@@ -36,7 +36,7 @@ func TestNewAuthenticator_WithUsers(t *testing.T) {
 
 func TestAuthenticatorMiddleware_Disabled(t *testing.T) {
 	// Create authenticator with no users (disabled)
-	auth := NewAuthenticator(nil, nil)
+	auth := NewAuthenticator(nil, nil, "")
 
 	// Create test handler
 	called := false
@@ -66,7 +66,7 @@ func TestAuthenticatorMiddleware_MissingAuthHeader(t *testing.T) {
 		},
 	}
 
-	auth := NewAuthenticator(users, nil)
+	auth := NewAuthenticator(users, nil, "")
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -88,7 +88,7 @@ func TestAuthenticatorMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
 		},
 	}
 
-	auth := NewAuthenticator(users, nil)
+	auth := NewAuthenticator(users, nil, "")
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -111,7 +111,7 @@ func TestAuthenticatorMiddleware_InvalidToken(t *testing.T) {
 		},
 	}
 
-	auth := NewAuthenticator(users, nil)
+	auth := NewAuthenticator(users, nil, "")
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -134,7 +134,7 @@ func TestAuthenticatorMiddleware_ValidToken(t *testing.T) {
 		},
 	}
 
-	auth := NewAuthenticator(users, nil)
+	auth := NewAuthenticator(users, nil, "")
 
 	// Handler that checks if username is in context
 	called := false
@@ -166,7 +166,7 @@ func TestAuthenticatorMiddleware_MultipleUsers(t *testing.T) {
 		},
 	}
 
-	auth := NewAuthenticator(users, nil)
+	auth := NewAuthenticator(users, nil, "")
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, ok := r.Context().Value(CtxUsernameKey).(string)
