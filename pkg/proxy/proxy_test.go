@@ -474,3 +474,305 @@ func (t *testBearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, 
 	req.Header.Set("Authorization", "Bearer "+t.token)
 	return t.wrapped.RoundTrip(req)
 }
+
+// --- naming strategy unit tests ---
+
+func TestMultiProxyNamingStrategy_TransformURI(t *testing.T) {
+	m := &multiProxyNamingStrategy{prefix: "p"}
+	// URI with scheme: insert prefix after "://"
+	require.Equal(t, "res://p/full/note", m.TransformURI("res://full/note"))
+	require.Equal(t, "foo://p/bar", m.TransformURI("foo://bar"))
+	// URI without scheme: prefix_name
+	require.Equal(t, "p_name", m.TransformURI("name"))
+	require.Equal(t, "p_", m.TransformURI(""))
+	// TransformName always prefixes
+	require.Equal(t, "p_echo", m.TransformName("echo"))
+}
+
+func TestSingleProxyNamingStrategy_IsIdentity(t *testing.T) {
+	s := &singleProxyNamingStrategy{}
+	require.Equal(t, "my_tool", s.TransformName("my_tool"))
+	require.Equal(t, "res://full/note", s.TransformURI("res://full/note"))
+	require.Equal(t, "plain", s.TransformURI("plain"))
+}
+
+// --- registry unit tests ---
+
+func newMinimalSingleProxy(t *testing.T) *SingleProxy {
+	t.Helper()
+	cl := client.NewClient(config.UpstreamConfig{Name: "test", Transport: "streamablehttp"})
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil, "")
+	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
+	require.NoError(t, err)
+	proxy, err := NewSingleProxy("streamablehttp", cl, "", authenticator, authorizer)
+	require.NoError(t, err)
+	return proxy
+}
+
+func TestSingleProxy_RegistryMethods(t *testing.T) {
+	proxy := newMinimalSingleProxy(t)
+
+	// Empty initially
+	require.Nil(t, proxy.GetToolNames())
+	require.Nil(t, proxy.GetResourceURIs())
+	require.Nil(t, proxy.GetResourceTemplateURIs())
+	require.Nil(t, proxy.GetPromptNames())
+
+	proxy.AddToolName("echo")
+	proxy.AddResourceURI("res://full/note")
+	proxy.AddResourceTemplateURI("res://full/{id}")
+	proxy.AddPromptName("greet")
+
+	require.Equal(t, []string{"echo"}, proxy.GetToolNames())
+	require.Equal(t, []string{"res://full/note"}, proxy.GetResourceURIs())
+	require.Equal(t, []string{"res://full/{id}"}, proxy.GetResourceTemplateURIs())
+	require.Equal(t, []string{"greet"}, proxy.GetPromptNames())
+
+	// ClearAll resets everything (RemoveTools/Resources/etc on empty server is a no-op)
+	proxy.ClearAll()
+	require.Nil(t, proxy.GetToolNames())
+	require.Nil(t, proxy.GetResourceURIs())
+	require.Nil(t, proxy.GetResourceTemplateURIs())
+	require.Nil(t, proxy.GetPromptNames())
+}
+
+func TestSingleProxy_ClearAll_NoopWhenEmpty(t *testing.T) {
+	proxy := newMinimalSingleProxy(t)
+	// ClearAll on an empty registry must not panic
+	require.NotPanics(t, proxy.ClearAll)
+}
+
+func TestMultiProxy_RegistryMethods(t *testing.T) {
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil, "")
+	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
+	require.NoError(t, err)
+	mp, err := NewMultiProxy("streamablehttp", make(map[string]*client.Client), nil, "", authenticator, authorizer)
+	require.NoError(t, err)
+
+	reg := &multiProxyClientRegistry{proxy: mp, clientName: "svc"}
+
+	require.Nil(t, reg.GetToolNames())
+	require.Nil(t, reg.GetResourceURIs())
+	require.Nil(t, reg.GetResourceTemplateURIs())
+	require.Nil(t, reg.GetPromptNames())
+
+	reg.AddToolName("echo")
+	reg.AddResourceURI("res://full/note")
+	reg.AddResourceTemplateURI("res://full/{id}")
+	reg.AddPromptName("greet")
+
+	require.Equal(t, []string{"echo"}, reg.GetToolNames())
+	require.Equal(t, []string{"res://full/note"}, reg.GetResourceURIs())
+	require.Equal(t, []string{"res://full/{id}"}, reg.GetResourceTemplateURIs())
+	require.Equal(t, []string{"greet"}, reg.GetPromptNames())
+
+	reg.ClearAll()
+	require.Nil(t, reg.GetToolNames())
+	require.Nil(t, reg.GetResourceURIs())
+	require.Nil(t, reg.GetResourceTemplateURIs())
+	require.Nil(t, reg.GetPromptNames())
+}
+
+// --- resources and prompts integration tests ---
+
+func newUpstreamClientFor(t *testing.T, ctx context.Context, handler http.Handler, name string) *client.Client {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	cl := client.NewClient(config.UpstreamConfig{
+		Name:      name,
+		Transport: "streamablehttp",
+		URL:       srv.URL + "/mcp",
+	})
+	cl.Start(ctx)
+	require.NoError(t, cl.WaitForConnection(ctx))
+	t.Cleanup(func() { cl.Close() }) //nolint:errcheck
+	return cl
+}
+
+func TestSingleProxy_ResourcesAndPrompts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	handler, err := (&mcptest.MCPFullServer{}).GetHTTPHandler()
+	require.NoError(t, err)
+	upstreamClient := newUpstreamClientFor(t, ctx, handler, "full")
+
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil, "")
+	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
+	require.NoError(t, err)
+
+	proxy, err := NewSingleProxy("streamablehttp", upstreamClient, "", authenticator, authorizer)
+	require.NoError(t, err)
+	require.NoError(t, proxy.Init(ctx))
+
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "client", Version: "1.0.0"}, nil)
+	session, err := mcpClient.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: proxyServer.URL + "/mcp"}, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	// Resources
+	resResult, err := session.ListResources(ctx, &mcp.ListResourcesParams{})
+	require.NoError(t, err)
+	require.Len(t, resResult.Resources, 1)
+	require.Equal(t, "res://full/note", resResult.Resources[0].URI)
+
+	readResult, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "res://full/note"})
+	require.NoError(t, err)
+	require.Equal(t, "note content", readResult.Contents[0].Text)
+
+	// Resource templates
+	tmplResult, err := session.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{})
+	require.NoError(t, err)
+	require.Len(t, tmplResult.ResourceTemplates, 1)
+	require.Equal(t, "res://full/{id}", tmplResult.ResourceTemplates[0].URITemplate)
+
+	// Prompts
+	promptsResult, err := session.ListPrompts(ctx, &mcp.ListPromptsParams{})
+	require.NoError(t, err)
+	require.Len(t, promptsResult.Prompts, 1)
+	require.Equal(t, "greet", promptsResult.Prompts[0].Name)
+
+	getPromptResult, err := session.GetPrompt(ctx, &mcp.GetPromptParams{Name: "greet"})
+	require.NoError(t, err)
+	require.Len(t, getPromptResult.Messages, 1)
+	require.Equal(t, "Hello!", getPromptResult.Messages[0].Content.(*mcp.TextContent).Text)
+
+	// Verify registry was populated
+	require.Equal(t, []string{"res://full/note"}, proxy.GetResourceURIs())
+	require.Equal(t, []string{"res://full/{id}"}, proxy.GetResourceTemplateURIs())
+	require.Equal(t, []string{"greet"}, proxy.GetPromptNames())
+}
+
+func TestMultiProxy_ResourcesAndPrompts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	handler, err := (&mcptest.MCPFullServer{}).GetHTTPHandler()
+	require.NoError(t, err)
+	upstreamClient := newUpstreamClientFor(t, ctx, handler, "full")
+
+	clients := map[string]*client.Client{"full": upstreamClient}
+	upstreams := []config.MultiUpstreamConfig{{Name: "full", Prefix: "svc"}}
+
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil, "")
+	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
+	require.NoError(t, err)
+
+	proxy, err := NewMultiProxy("streamablehttp", clients, upstreams, "", authenticator, authorizer)
+	require.NoError(t, err)
+	require.NoError(t, proxy.Init(ctx))
+
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "client", Version: "1.0.0"}, nil)
+	session, err := mcpClient.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: proxyServer.URL + "/mcp"}, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	// Resources are transformed: res://full/note -> res://svc/full/note
+	resResult, err := session.ListResources(ctx, &mcp.ListResourcesParams{})
+	require.NoError(t, err)
+	require.Len(t, resResult.Resources, 1)
+	require.Equal(t, "res://svc/full/note", resResult.Resources[0].URI)
+
+	// Resource templates: res://full/{id} -> res://svc/full/{id}
+	tmplResult, err := session.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{})
+	require.NoError(t, err)
+	require.Len(t, tmplResult.ResourceTemplates, 1)
+	require.Equal(t, "res://svc/full/{id}", tmplResult.ResourceTemplates[0].URITemplate)
+
+	// Tool name is transformed: echo -> svc_echo
+	toolsResult, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	require.NoError(t, err)
+	require.Len(t, toolsResult.Tools, 1)
+	require.Equal(t, "svc_echo", toolsResult.Tools[0].Name)
+
+	// Prompt name is transformed: greet -> svc_greet
+	promptsResult, err := session.ListPrompts(ctx, &mcp.ListPromptsParams{})
+	require.NoError(t, err)
+	require.Len(t, promptsResult.Prompts, 1)
+	require.Equal(t, "svc_greet", promptsResult.Prompts[0].Name)
+}
+
+// --- refresh / clear handler tests ---
+
+func TestSingleProxy_RefreshHandlers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	calcServer := &mcptest.MCPCalculator{}
+	handler, err := calcServer.GetHTTPHandler()
+	require.NoError(t, err)
+	upstreamClient := newUpstreamClientFor(t, ctx, handler, "calculator")
+
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil, "")
+	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
+	require.NoError(t, err)
+
+	proxy, err := NewSingleProxy("streamablehttp", upstreamClient, "", authenticator, authorizer)
+	require.NoError(t, err)
+	require.NoError(t, proxy.Init(ctx))
+
+	// Initial registry state: "calculate" registered
+	require.Equal(t, []string{"calculate"}, proxy.GetToolNames())
+
+	// Rename upstream tool — triggers tools/list_changed → refreshHandlers
+	require.NoError(t, calcServer.RenameCalculateToCount(ctx))
+
+	// Proxy registry must eventually reflect "count" after the async refresh
+	require.Eventually(t, func() bool {
+		tools := proxy.GetToolNames()
+		return len(tools) == 1 && tools[0] == "count"
+	}, 5*time.Second, 50*time.Millisecond, "proxy should refresh tools after upstream rename")
+}
+
+func TestMultiProxy_ClearAndRefreshHandlers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	calcServer := &mcptest.MCPCalculator{}
+	handler, err := calcServer.GetHTTPHandler()
+	require.NoError(t, err)
+	upstreamClient := newUpstreamClientFor(t, ctx, handler, "calculator")
+
+	clients := map[string]*client.Client{"calculator": upstreamClient}
+	upstreams := []config.MultiUpstreamConfig{{Name: "calculator", Prefix: "calc"}}
+
+	authenticator := auth.NewAuthenticator(make(map[string]config.UserConfig), nil, "")
+	authorizer, err := auth.NewAuthorizer(make(map[string][]string), []auth.AuthRule{})
+	require.NoError(t, err)
+
+	proxy, err := NewMultiProxy("streamablehttp", clients, upstreams, "", authenticator, authorizer)
+	require.NoError(t, err)
+	require.NoError(t, proxy.Init(ctx))
+
+	// After Init, "calc_calculate" is registered
+	proxy.mu.RLock()
+	tools := proxy.registeredTools["calculator"]
+	proxy.mu.RUnlock()
+	require.Equal(t, []string{"calc_calculate"}, tools)
+
+	// clearClientHandlers removes the entry
+	proxy.clearClientHandlers("calculator")
+
+	proxy.mu.RLock()
+	_, exists := proxy.registeredTools["calculator"]
+	proxy.mu.RUnlock()
+	require.False(t, exists)
+
+	// Rename upstream tool — triggers tools/list_changed → refreshHandlers goroutine
+	require.NoError(t, calcServer.RenameCalculateToCount(ctx))
+
+	// Registry must eventually reflect "calc_count" after the async refresh
+	require.Eventually(t, func() bool {
+		proxy.mu.RLock()
+		tools := proxy.registeredTools["calculator"]
+		proxy.mu.RUnlock()
+		return len(tools) == 1 && tools[0] == "calc_count"
+	}, 5*time.Second, 50*time.Millisecond, "multiproxy should refresh and register calc_count")
+}

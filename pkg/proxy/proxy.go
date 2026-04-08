@@ -310,6 +310,7 @@ type SingleProxy struct {
 	client            *client.Client
 	ctx               context.Context
 	naming            HandlerNamingStrategy
+	mu                sync.RWMutex // protects tools, resources, resourceTemplates, prompts
 	tools             []string
 	resources         []string
 	resourceTemplates []string
@@ -335,18 +336,57 @@ func NewSingleProxy(transport string, c *client.Client, path string, authenticat
 }
 
 // HandlerRegistry implementation for SingleProxy
-func (p *SingleProxy) AddToolName(name string)   { p.tools = append(p.tools, name) }
-func (p *SingleProxy) AddResourceURI(uri string) { p.resources = append(p.resources, uri) }
+func (p *SingleProxy) AddToolName(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tools = append(p.tools, name)
+}
+
+func (p *SingleProxy) AddResourceURI(uri string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.resources = append(p.resources, uri)
+}
+
 func (p *SingleProxy) AddResourceTemplateURI(uri string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.resourceTemplates = append(p.resourceTemplates, uri)
 }
-func (p *SingleProxy) AddPromptName(name string)         { p.prompts = append(p.prompts, name) }
-func (p *SingleProxy) GetToolNames() []string            { return p.tools }
-func (p *SingleProxy) GetResourceURIs() []string         { return p.resources }
-func (p *SingleProxy) GetResourceTemplateURIs() []string { return p.resourceTemplates }
-func (p *SingleProxy) GetPromptNames() []string          { return p.prompts }
+
+func (p *SingleProxy) AddPromptName(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.prompts = append(p.prompts, name)
+}
+
+func (p *SingleProxy) GetToolNames() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.tools
+}
+
+func (p *SingleProxy) GetResourceURIs() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.resources
+}
+
+func (p *SingleProxy) GetResourceTemplateURIs() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.resourceTemplates
+}
+
+func (p *SingleProxy) GetPromptNames() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.prompts
+}
 
 func (p *SingleProxy) ClearAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if len(p.tools) > 0 {
 		p.mcpServer.RemoveTools(p.tools...)
 		p.tools = nil

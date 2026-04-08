@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -316,6 +317,93 @@ func (m *MCPHello) RunClient(string) error {
 	fmt.Printf("RESULT: %v\n", result)
 	return nil
 }
+
+// MCPFullServer implements an MCP server that exposes tools, resources,
+// resource templates, and prompts — used to test proxy coverage of all
+// capability types.
+type MCPFullServer struct{}
+
+var _ MCPTestServer = (*MCPFullServer)(nil)
+
+func (m *MCPFullServer) GetHTTPHandler() (http.Handler, error) {
+	s := m.createMCPServer()
+	h := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		return s
+	}, nil)
+	return h, nil
+}
+
+func (m *MCPFullServer) createMCPServer() *mcp.Server {
+	s := mcp.NewServer(&mcp.Implementation{Name: "full-server", Version: "1.0.0"}, nil)
+
+	// Tool: echo
+	echoTool := &mcp.Tool{
+		Name:        "echo",
+		Description: "Echoes the input text",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"text": map[string]any{"type": "string"},
+			},
+		},
+	}
+	s.AddTool(echoTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args map[string]any
+		if len(req.Params.Arguments) > 0 {
+			_ = json.Unmarshal(req.Params.Arguments, &args)
+		}
+		text, _ := args["text"].(string)
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: text}},
+		}, nil
+	})
+
+	// Resource: res://full/note
+	s.AddResource(&mcp.Resource{
+		URI:         "res://full/note",
+		Name:        "note",
+		Description: "A test note resource",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{{URI: req.Params.URI, Text: "note content"}},
+		}, nil
+	})
+
+	// Resource template: res://full/{id}
+	s.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "res://full/{id}",
+		Name:        "item",
+		Description: "A test resource template",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{{URI: req.Params.URI, Text: "item: " + req.Params.URI}},
+		}, nil
+	})
+
+	// Prompt: greet
+	s.AddPrompt(&mcp.Prompt{
+		Name:        "greet",
+		Description: "A greeting prompt",
+	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return &mcp.GetPromptResult{
+			Description: "Greeting",
+			Messages: []*mcp.PromptMessage{
+				{Role: "user", Content: &mcp.TextContent{Text: "Hello!"}},
+			},
+		}, nil
+	})
+
+	return s
+}
+
+func (m *MCPFullServer) RunServer() error {
+	s := m.createMCPServer()
+	h := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return s }, nil)
+	srv := &http.Server{Addr: "localhost:7753", Handler: h}
+	return srv.ListenAndServe()
+}
+
+func (m *MCPFullServer) RunClient(string) error { return fmt.Errorf("not implemented") }
 
 // MCPTemperature implements a temperature monitoring MCP server
 type MCPTemperature struct{}
